@@ -1,5 +1,5 @@
 #
-# Makefile for as520 assembler for vm520
+# Makefile for xpas assembler for xpvm
 #
 
 CC = gcc
@@ -9,8 +9,8 @@ YACC = bison
 
 LEX = flex
 
-as520: scan.o main.o parse.o message.o assemble.o
-	$(CC) $(CFLAGS) scan.o main.o parse.o message.o assemble.o -o as520
+xpas: scan.o main.o parse.o message.o assemble.o
+	$(CC) $(CFLAGS) scan.o main.o parse.o message.o assemble.o -o xpas
 
 scan.o: y.tab.h defs.h
 
@@ -41,5 +41,5 @@ y.output: parse.y
 
 clean:
 	-rm *.o parse.c scan.c y.tab.h lexdbg
-	-rm as520 y.output
+	-rm xpas y.output
 

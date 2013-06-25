@@ -5,10 +5,6 @@
 # Taken from Phil Hatcher's cs520 lecture slides.
 #
 
-export sum
-export top
-export done
-jmp skipData
 sum:
   word 0
 len:

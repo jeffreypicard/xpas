@@ -3,3 +3,7 @@
 y.tab.h
 lex.yy.c
 parse.c
+scan.c
+
+xpas
+lexdbg
