@@ -1,4 +1,5 @@
 *.o
 *.obj
 y.tab.h
+lex.yy.c
 parse.c

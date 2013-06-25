@@ -11,7 +11,11 @@
 #include "defs.h"
 #include "y.tab.h"
 
+#ifndef DEBUG
 extern unsigned int scanErrorCount;
+#else
+unsigned int scanErrorCount = 0;
+#endif
 
 #undef yywrap
 int yywrap (void);

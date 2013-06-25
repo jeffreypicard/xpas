@@ -33,7 +33,7 @@ assemble.o: defs.h
 
 lexdbg: scan.l y.tab.h
 	$(LEX) scan.l
-	$(CC) -DDEBUG lex.yy.c -lfl -o lexdbg
+	$(CC) -DDEBUG lex.yy.c message.c -lfl -o lexdbg
 	rm lex.yy.c
 
 y.output: parse.y

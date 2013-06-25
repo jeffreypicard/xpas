@@ -68,6 +68,30 @@ typedef struct instruction {
     } u;
 } INSTR;
 
+// XPVM assembler instruction struct
+/*
+typedef struct instruction {
+    unsigned int format;
+    char * opcode;
+    union {
+      struct format2 {
+        unsigned int ri;
+        unsigned int rj;
+        unsigned int rk;
+      } format2;
+      struct format3 {
+        unsigned int ri;
+        unsigned int rj;
+        unsigned int const8;
+      } format3;
+      struct format4 {
+        unsigned int ri;
+        unsigned int const16;
+      } format4;
+    } u;
+} INSTR;
+*/
+
 ////////////////////////////////////////////////////////////////////////////
 // guts of the assembler (assemble.c)
 
