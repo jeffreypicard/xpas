@@ -1,0 +1,4 @@
+*.o
+*.obj
+y.tab.h
+parse.c
