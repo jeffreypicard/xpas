@@ -39,6 +39,20 @@ lexdbg: scan.l y.tab.h
 y.output: parse.y
 	$(YACC) -v -y parse.y
 
+lex.yy.o: lex.yy.c y.tab.h
+	$(CC) -c -g lex.yy.c
+
+lex.yy.c: scan.l
+	$(LEX) scan.l
+
+y.tab.o: y.tab.c
+	$(CC) -c -Wall -g y.tab.c
+
+parsedbg: lex.yy.o y.tab.c main.c
+	$(CC) -c -g -DYYDEBUG=1 main.c
+	$(CC) -c -g -DYYDEBUG=1 y.tab.c
+	$(CC) -g lex.yy.o y.tab.o main.o message.o assemble.o -o parsedbg
+
 clean:
 	-rm *.o parse.c scan.c y.tab.h lexdbg
 	-rm xpas y.output

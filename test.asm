@@ -5,6 +5,7 @@
 # Taken from Phil Hatcher's cs520 lecture slides.
 #
 
+jmp skipData
 sum:
   word 0
 len:
@@ -30,3 +31,4 @@ top:
 done:
   store   r3, sum
   halt
+# exit sum

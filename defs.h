@@ -68,36 +68,8 @@ typedef struct instruction {
     } u;
 } INSTR;
 
-// XPVM assembler instruction struct
-/*
-typedef struct instruction {
-    unsigned int format;
-    char * opcode;
-    union {
-      struct format2 {
-        unsigned int ri;
-        unsigned int rj;
-        unsigned int rk;
-      } format2;
-      struct format3 {
-        unsigned int ri;
-        unsigned int rj;
-        unsigned int const8;
-      } format3;
-      struct format4 {
-        unsigned int ri;
-        unsigned int const16;
-      } format4;
-    } u;
-} INSTR;
-*/
-
-////////////////////////////////////////////////////////////////////////////
-// guts of the assembler (assemble.c)
-
-// called once at startup to initialize the assembler
-extern void initAssemble(void);
-
+extern void process_func( char *, char *);
+extern void process_handler( char *, char *, char *);
 // called to process one line of input
 //   called on each pass
 extern void assemble(char *, INSTR);

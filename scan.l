@@ -71,6 +71,12 @@ other                     .
 
 %%
 
+"func"                    return token(FUNC);
+
+"end"                     return token(END);
+
+"exception"               return token(EXCEPTION);
+
 "("                       return token(LPAREN);
 
 ")"                       return token(RPAREN);
@@ -108,7 +114,7 @@ other                     .
 
 {comment}                 {
                             yylineno++;
-                            return token(EOL);
+                            //return token(EOL);
                           }
 
 {other}                   return token(yytext[0]);

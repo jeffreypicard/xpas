@@ -9,7 +9,7 @@
 #include "defs.h"
 
 // enable debugging printout?
-#define DEBUG 0
+#define DEBUG 1
 
 // have betweenPasses print defined labels and their addresses to stdout?
 #define PRINT_DEFINED_LABELS 1
@@ -26,6 +26,9 @@ static FILE *fp;
 
 // running count for number of words to output for object code
 static unsigned int currentLength = 0;
+
+// number of block the object file will contain
+static int num_blocks = 0;
 
 // forward references for private symbol table routines
 static void *symtabLookup(char *id);
@@ -58,6 +61,7 @@ static void outputSymbol(char *id);
 static unsigned int checkForImportExportErrors(void);
 static void checkForAddressErrors(void);
 static void outputHeaders(void);
+static void output_header(void);
 static void outputInsymbols(void);
 static void outputOutsymbols(void);
 static int encodeAddr20(char*, unsigned int);
@@ -67,6 +71,10 @@ static unsigned int fitIn20(int value);
 static void checkAddr(char*, unsigned int def, unsigned int ref,
                      unsigned int format);
 
+static void func_pass1( char *, char * );
+static void func_pass2( char *, char * );
+static void handler_pass1( char *, char *, char * );
+static void handler_pass2( char *, char *, char * );
 //////////////////////////////////////////////////////////////////////////
 // public entry points
 
@@ -77,6 +85,19 @@ void initAssemble(void)
 #if DEBUG
   fprintf(stderr, "initAssemble called\n");
 #endif
+}
+
+void process_func( char *id1, char *id2 )
+{
+  if( strcmp( id1, id2) )
+  {
+    error("start and end ids for functions must match.");
+    errorCount += 1;
+  }
+}
+
+void process_handler( char *handle, char *start, char *end )
+{
 }
 
 // this is the "guts" of the assembler and is called for each line
@@ -155,6 +176,7 @@ int betweenPasses(FILE *outf)
   // if no errors, output headers and then insymbol and outsymbol section
   if (!errorCount)
   {
+    output_header();
     outputHeaders();
     outputInsymbols();
     outputOutsymbols();
@@ -393,13 +415,20 @@ static void assemblePass2(char *label, INSTR instr)
 // outputWord
 //
 // puts a word out one byte at a time in little Endian format
+// Switched to big endian for xpvm.
 //
 static void outputWord(int value)
 {
+#if 0
   putc(value & 0xFF, fp);
   putc((value >> 8) & 0xFF, fp);
   putc((value >> 16) & 0xFF, fp);
   putc((value >> 24) & 0xFF, fp);
+#endif
+  putc((value >> 24) & 0xFF, fp);
+  putc((value >> 16) & 0xFF, fp);
+  putc((value >> 8) & 0xFF, fp);
+  putc(value & 0xFF, fp);
 }
 
 // outputSymbol
@@ -472,6 +501,110 @@ opcodes[] =
 {"import",  2, 0xFF},
 {"export",  2, 0xFF}
 };
+
+//
+// xpvm opcodes
+//
+#if 0
+static struct opcodeInfo
+{
+   char*          opcode;
+   int            format;
+   unsigned char  encoding;
+}
+opcodes[] =
+{
+{"ldb",                   2, 0x02},
+{"ldb",                   3, 0x03},
+{"lds",                   2, 0x04},
+{"lds",                   3, 0x05},
+{"ldi",                   2, 0x06},
+{"ldi",                   3, 0x07},
+{"ldl",                   2, 0x08},
+{"ldl",                   3, 0x09},
+{"ldf",                   2, 0x0A},
+{"ldf",                   3, 0x0B},
+{"ldd",                   2, 0x0C},
+{"ldd",                   3, 0x0D},
+{"ldimm",                 0, 0x0E},
+{"ldimm2",                0, 0x0F},
+{"stb",                   0, 0x10},
+{"stb",                   0, 0x11},
+{"sts",                   0, 0x12},
+{"sts",                   0, 0x13},
+{"sti",                   0, 0x14},
+{"sti",                   0, 0x15},
+{"stl",                   0, 0x16},
+{"stl",                   0, 0x17},
+{"stf",                   0, 0x18},
+{"stf",                   0, 0x19},
+{"std",                   0, 0x1A},
+{"std",                   0, 0x1B},
+{"ldblkid",               0, 0x1C},
+{"ldnative",              0, 0x1D},
+{"addl",                  0, 0x20},
+{"addl",                  0, 0x21},
+{"subl",                  0, 0x22},
+{"subl",                  0, 0x23},
+{"mull",                  0, 0x24},
+{"mull",                  0, 0x25},
+{"divl",                  0, 0x26},
+{"divl",                  0, 0x27},
+{"reml",                  0, 0x28},
+{"reml",                  0, 0x29},
+{"negl",                  0, 0x2A},
+{"addd",                  0, 0x2B},
+{"subd",                  0, 0x2C},
+{"muld",                  0, 0x2D},
+{"divd",                  0, 0x2E},
+{"negd",                  0, 0x2F},
+{"cvtld",                 0, 0x30},
+{"cvtdl",                 0, 0x31},
+{"lshift",                0, 0x32},
+{"lshift",                0, 0x33},
+{"rshift",                0, 0x34},
+{"rshift",                0, 0x35},
+{"rshiftu",               0, 0x36},
+{"rshiftu",               0, 0x37},
+{"and",                   0, 0x38},
+{"or",                    0, 0x39},
+{"xor",                   0, 0x3A},
+{"ornot",                 0, 0x3B},
+{"cmpeq",                 0, 0x40},
+{"cmpeq",                 0, 0x41},
+{"cmple",                 0, 0x42},
+{"cmple",                 0, 0x43},
+{"cmplt",                 0, 0x44},
+{"cmplt",                 0, 0x45},
+{"cmpule",                0, 0x46},
+{"cmpule",                0, 0x47},
+{"cmpult",                0, 0x48},
+{"cmpult",                0, 0x49},
+{"fcmpeq",                0, 0x4A},
+{"fcmple",                0, 0x4B},
+{"fcmplt",                0, 0x4C}
+{"jmp",                   0, 0x50},
+{"jmp",                   0, 0x51},
+{"btrue",                 0, 0x52},
+{"bfalse",                0, 0x53},
+{"alloc_blk",             0, 0x60},
+{"alloc_private_blk",     0, 0x61},
+{"aquire_blk",            0, 0x62},
+{"release_blk",           0, 0x63},
+{"set_volatile",          0, 0x64},
+{"get_owner",             0, 0x65},
+{"call",                  0, 0x72},
+{"calln",                 0, 0x73},
+{"ret",                   0, 0x74},
+{"throw",                 0, 0x80},
+{"retrieve",              0, 0x81},
+{"init_proc",             0, 0x90},
+{"join",                  0, 0x91},
+{"join2",                 0, 0x92},
+{"whoami",                0, 0x93},
+};
+#endif
+
 
 // verifyOpcode
 //
@@ -1020,6 +1153,20 @@ static void printDefinedLabels(void)
 }
 #endif
 
+/*
+ * output_header
+ *
+ * Output the header information necessary for the xpvm object file format.
+ * Currently just the magic number and the number of blocks.
+ */
+static void 
+output_header( void )
+{
+  const int MAGIC = 0x31303636; 
+  outputWord( MAGIC );
+  outputWord( num_blocks );
+}
+
 //  outputHheaders
 //
 //  output the insymbol section length, the outsymbol section length and
@@ -1112,6 +1259,7 @@ static void outputOutsymbols(void)
 static void dumpSymbolTable(void)
 {
   fprintf(stderr, "symbol table dump===================================\n");
+  unsigned int outFormat;
   void *iter = symtabInitIterator();
   SYMTAB_REC *p = symtabNext(iter);
   while (p)
@@ -1124,11 +1272,11 @@ static void dumpSymbolTable(void)
     fprintf(stderr, "  isImported %d\n", p->isImported);
     fprintf(stderr, "  references:\n");
     void *iter2 = referenceInitIterator(p);
-    unsigned int addr = referenceNext(iter2);
+    unsigned int addr = referenceNext(iter2, &outFormat );
     while (addr != -1)
     {
       fprintf(stderr, "    %d\n", addr);
-      addr = referenceNext(iter2);
+      addr = referenceNext(iter2, &outFormat );
     }
     p = symtabNext(iter);
   }

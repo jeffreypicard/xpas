@@ -40,6 +40,9 @@ void yyerror(char *s);
 %token COMMA
 %token LPAREN
 %token RPAREN
+%token FUNC
+%token END
+%token EXCEPTION
 
 //
 //      typed non-terminal symbols
@@ -51,7 +54,31 @@ void yyerror(char *s);
 %%
 
 program
-        : stmt stmt_list
+        : handler_list func_list
+        ;
+
+func_list
+        : /* null derive */
+        | func func_list
+        ;
+
+func
+        : FUNC ID EOL stmt stmt_list END ID EOL
+          {
+            process_func( $2, $7 );
+          }
+        ;
+
+handler_list
+        : /* null derive */
+        | handler handler_list
+        ;
+
+handler
+        : EXCEPTION ID COMMA ID COMMA ID EOL
+          {
+            process_handler( $2, $4, $6 );
+          }
         ;
 
 stmt_list
