@@ -56,8 +56,11 @@ static FILE *fp;
 // running count for number of words to output for object code
 static unsigned int currentLength = 0;
 
-// number of block the object file will contain
+/* number of block the object file will contain */
 static int num_blocks = 0;
+
+/* number of exception handlers declared */
+static int num_handlers = 0;
 
 // forward references for private symbol table routines
 static void *symtabLookup(char *id);
@@ -106,6 +109,8 @@ static void handler_pass1( char *, char *, char * );
 static void handler_pass2( char *, char *, char * );
 static void func_push( func_node **, func_node * );
 static void handler_push( handler_node **, handler_node * );
+static void dump_funcs( func_node * );
+static void dump_handlers( handler_node * );
 //////////////////////////////////////////////////////////////////////////
 // public entry points
 
@@ -259,6 +264,7 @@ static void func_pass1( char *id )
     fatal("malloc failed in func_pass1");
   new->name = id;
   func_push( &func_list, new );
+  num_blocks += 1;
 }
 
 /*
@@ -283,6 +289,23 @@ static void func_push( func_node **root, func_node *new )
   *root = new;
 }
 
+/*
+ * dump_funcs
+ *
+ * Print out imformation about all declared functions.
+ */
+static void dump_funcs( func_node *root )
+{
+  func_node *walk = root;
+  fprintf(stderr, "function list dump===================================\n");
+  while ( walk )
+  {
+    fprintf( stderr, "%s\n", walk->name );
+    walk = walk->link;
+  }
+  fprintf(stderr, "======================================================\n");
+}
+
 /********************************************************************
  * exception handler processing routines                            *
  ********************************************************************/
@@ -301,6 +324,7 @@ static void handler_pass1( char *handle, char *start, char *end )
   new->start_lbl = start;
   new->end_lbl = end;
   handler_push( &handler_list, new );
+  num_handlers += 1;
 }
 
 /*
@@ -323,6 +347,25 @@ static void handler_push( handler_node **root, handler_node *new )
     bug("new is null in handle_push!");
   new->link = *root;
   *root = new;
+}
+
+/*
+ * dump_handlers
+ *
+ * Print out imformation about all declared exception handlers.
+ */
+static void dump_handlers( handler_node *root )
+{
+  handler_node *walk = root;
+  fprintf(stderr, "handler list dump===================================\n");
+  while ( walk )
+  {
+    fprintf( stderr, "%s, %s, %s\n", walk->handle_lbl
+                                   , walk->start_lbl
+                                   , walk->end_lbl );
+    walk = walk->link;
+  }
+  fprintf(stderr, "====================================================\n");
 }
 
 
