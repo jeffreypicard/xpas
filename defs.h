@@ -1,5 +1,5 @@
 //
-// defs.h - global definitions for cs520 assembler
+// defs.h - global definitions for the xpvm assembler.
 //
 //
 

@@ -11,4 +11,4 @@ stop:
   ldimm   r5, 0
 handle:
   halt
-end lol
+end main

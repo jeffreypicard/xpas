@@ -14,6 +14,35 @@
 // have betweenPasses print defined labels and their addresses to stdout?
 #define PRINT_DEFINED_LABELS 1
 
+/*
+ * Structs
+ */
+struct handler_node {
+  char  *handle_lbl;
+  char  *start_lbl;
+  char  *end_lbl;
+  int   handle_addr;
+  int   start_addr;
+  int   end_addr;
+  struct handler_node *link;
+} typedef handler_node;
+
+struct func_node {
+  char  *name;
+  int   addr;
+  struct func_node *link;
+} typedef func_node;
+
+/*
+ * Globals
+ */
+
+/* List of all declared exception handlers */
+static handler_node *handler_list = NULL;
+
+/* List of all declared functions */
+static func_node *func_list = NULL;
+
 // track which pass we are on
 static int currentPass = 1;
 
@@ -71,10 +100,12 @@ static unsigned int fitIn20(int value);
 static void checkAddr(char*, unsigned int def, unsigned int ref,
                      unsigned int format);
 
-static void func_pass1( char *, char * );
-static void func_pass2( char *, char * );
+static void func_pass1( char * );
+static void func_pass2( char * );
 static void handler_pass1( char *, char *, char * );
 static void handler_pass2( char *, char *, char * );
+static void func_push( func_node **, func_node * );
+static void handler_push( handler_node **, handler_node * );
 //////////////////////////////////////////////////////////////////////////
 // public entry points
 
@@ -89,15 +120,39 @@ void initAssemble(void)
 
 void process_func( char *id1, char *id2 )
 {
-  if( strcmp( id1, id2) )
+  if ( strcmp( id1, id2) )
   {
     error("start and end ids for functions must match.");
     errorCount += 1;
+  }
+  switch ( currentPass )
+  {
+    case 1:
+      func_pass1( id1 );
+      break;
+    case 2:
+      func_pass2( id1 );
+      break;
+    default:
+      bug("unexpected current pass number (%d) in process_func\n", 
+          currentPass);
   }
 }
 
 void process_handler( char *handle, char *start, char *end )
 {
+  switch ( currentPass )
+  {
+    case 1:
+      handler_pass1( handle, start, end );
+      break;
+    case 2:
+      handler_pass2( handle, start, end );
+      break;
+    default:
+      bug("unexpected current pass number (%d) in process_handler\n", 
+          currentPass);
+  }
 }
 
 // this is the "guts" of the assembler and is called for each line
@@ -187,6 +242,90 @@ int betweenPasses(FILE *outf)
 
   return errorCount;
 }
+
+/********************************************************************
+ * function processing routines                                     *
+ ********************************************************************/
+
+/*
+ * func_pass1
+ *
+ * processing a function declaration on pass 1
+ */
+static void func_pass1( char *id )
+{
+  func_node *new = calloc( 1, sizeof *new );
+  if ( !new )
+    fatal("malloc failed in func_pass1");
+  new->name = id;
+  func_push( &func_list, new );
+}
+
+/*
+ * func_pass2
+ *
+ * processing a function declaration on pass 1
+ */
+static void func_pass2( char *id )
+{
+}
+
+/*
+ * func_push
+ *
+ * Push a new func_node onto the head of the list
+ */
+static void func_push( func_node **root, func_node *new )
+{
+  if ( !new )
+    bug("new is null in func_push!");
+  new->link = *root;
+  *root = new;
+}
+
+/********************************************************************
+ * exception handler processing routines                            *
+ ********************************************************************/
+
+/*
+ * handler_pass1
+ *
+ * processing an exception handler  declaration on pass 1
+ */
+static void handler_pass1( char *handle, char *start, char *end )
+{
+  handler_node *new = calloc( 1, sizeof *new );
+  if ( !new )
+    fatal("malloc failed in handler_pass1");
+  new->handle_lbl = handle;
+  new->start_lbl = start;
+  new->end_lbl = end;
+  handler_push( &handler_list, new );
+}
+
+/*
+ * handler_pass2
+ *
+ * processing an exception handler declaration on pass 2
+ */
+static void handler_pass2( char *handle, char *start, char *end )
+{
+}
+
+/*
+ * handler_push
+ *
+ * Push a new handle_node onto the head of the list
+ */
+static void handler_push( handler_node **root, handler_node *new )
+{
+  if ( !new )
+    bug("new is null in handle_push!");
+  new->link = *root;
+  *root = new;
+}
+
+
 
 //////////////////////////////////////////////////////////////////////////
 // the two main assembly routines, one for each pass
