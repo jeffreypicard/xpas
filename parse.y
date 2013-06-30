@@ -69,6 +69,7 @@ program
           if ( $1 )
           {
             func_list = $1;
+            verify_handlers( func_list->handlers );
           }
         }
         ;

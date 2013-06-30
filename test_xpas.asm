@@ -12,5 +12,5 @@ start:
 stop:
   ldimm   r5, 0
 handle:
-  ret r5, r6
+  ret r6
 end main

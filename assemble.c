@@ -71,13 +71,13 @@ static void assemblePass2(char*, INSTR);
 static int verifyOpcode(char *opcode);
 static int getOpcodeEncoding(char *opcode);
 static void outputWord(int value);
-static void outputSymbol(char *id);
+//static void outputSymbol(char *id);
 static unsigned int checkForImportExportErrors(void);
 static void checkForAddressErrors(void);
-static void outputHeaders(void);
+//static void outputHeaders(void);
 static void output_header(void);
-static void outputInsymbols(void);
-static void outputOutsymbols(void);
+//static void outputInsymbols(void);
+//static void outputOutsymbols(void);
 static int encodeAddr20(char*, unsigned int);
 static int encodeAddr16(char*, unsigned int);
 static unsigned int fitIn16(int value);
@@ -86,15 +86,13 @@ static void checkAddr(char*, unsigned int def, unsigned int ref,
                      unsigned int format);
 
 static func_node *func_pass1( char *, handler_node *, stmt_node * );
-static void func_pass2( char * );
+//static void func_pass2( char * );
 static handler_node *handler_pass1( char *, char *, char * );
 static handler_node *handler_pass2( char *, char *, char * );
-static void func_push( func_node **, func_node * );
-static void handler_push( handler_node **, handler_node * );
 static void dump_funcs( func_node * );
 static void dump_handlers( handler_node * );
 
-static int verify_handlers( handler_node * );
+int verify_handlers( handler_node * );
 //////////////////////////////////////////////////////////////////////////
 // public entry points
 
@@ -435,7 +433,6 @@ static func_node *func_pass1( char *id, handler_node *handlers,
   new->handlers = handlers;
   new->stmts = stmts;
   new->length = stmt_list_length( stmts );
-  //func_push( &func_list, new );
   num_blocks += 1;
   return new;
 }
@@ -445,22 +442,11 @@ static func_node *func_pass1( char *id, handler_node *handlers,
  *
  * processing a function declaration on pass 1
  */
+/*
 static void func_pass2( char *id )
 {
 }
-
-/*
- * func_push
- *
- * Push a new func_node onto the head of the list
- */
-static void func_push( func_node **root, func_node *new )
-{
-  if ( !new )
-    bug("new is null in func_push!");
-  new->link = *root;
-  *root = new;
-}
+*/
 
 static void dump_stmts( stmt_node *stmts )
 {
@@ -524,19 +510,6 @@ static handler_node *handler_pass1( char *handle, char *start, char *end )
 static handler_node *handler_pass2( char *handle, char *start, char *end )
 {
   return NULL;
-}
-
-/*
- * handler_push
- *
- * Push a new handle_node onto the head of the list
- */
-static void handler_push( handler_node **root, handler_node *new )
-{
-  if ( !new )
-    bug("new is null in handle_push!");
-  new->link = *root;
-  *root = new;
 }
 
 /*
@@ -615,7 +588,7 @@ static stmt_node *assemble_pass1( char *label, INSTR *instr )
   }
 
   // sanity check for instruction format
-  if (instr->format > 9)
+  if (instr->format > 10)
   {
     bug("bogus format (%d) seen in assemblePass1", instr->format);
   }
@@ -959,6 +932,7 @@ static void outputWord(int value)
 // this is only called if there are no errors in input file, so we
 // know that the symbol is 16 or fewer characters
 //
+/*
 static void outputSymbol(char *id)
 {
   int len = strlen(id);
@@ -975,6 +949,7 @@ static void outputSymbol(char *id)
     i += 1;
   }
 }
+*/
 
 //////////////////////////////////////////////////////////////////////////
 // process opcodes
@@ -1117,7 +1092,7 @@ opcodes[] =
 {"get_owner",             0, 0x65},
 {"call",                  0, 0x72},
 {"calln",                 0, 0x73},
-{"ret",                   6, 0x74},
+{"ret",                   3, 0x74},
 {"throw",                 0, 0x80},
 {"retrieve",              0, 0x81},
 {"init_proc",             0, 0x90},
@@ -1695,6 +1670,7 @@ output_header( void )
 //  output the insymbol section length, the outsymbol section length and
 //  the object code section length
 //
+/*
 static void outputHeaders(void)
 {
   //   iterate over the symbols to count how many insymbol and outsymbol
@@ -1726,11 +1702,13 @@ static void outputHeaders(void)
   outputWord(outsymbolCount * 5);
   outputWord(currentLength);
 }
+*/
 
 //  outputInsymbols
 //
 //  iterate over the symbols and output the exported symbols
 //
+/*
 static void outputInsymbols(void)
 {
   void *iter = symtabInitIterator();
@@ -1745,6 +1723,7 @@ static void outputInsymbols(void)
     p = symtabNext(iter);
   }
 }
+*/
 
 //  outputOutsymbols
 //
@@ -1752,6 +1731,7 @@ static void outputInsymbols(void)
 //
 //  an entry must be output for each reference to the symbol
 //
+/*
 static void outputOutsymbols(void)
 {
   void *iter = symtabInitIterator();
@@ -1773,6 +1753,7 @@ static void outputOutsymbols(void)
     p = symtabNext(iter);
   }
 }
+*/
 
 #if DEBUG
 // dumpSymbolTable
@@ -1867,7 +1848,7 @@ static int populate_handler_addrs( handler_node *handler )
  * This involves verifying the symbols are defined and filling
  * in their address in the handler structs.
  */
-static int verify_handlers( handler_node *root )
+int verify_handlers( handler_node *root )
 {
   int ret = 0;
   handler_node *walk = root;

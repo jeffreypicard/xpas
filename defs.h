@@ -102,6 +102,7 @@ extern handler_node *process_handler( char *, char *, char *);
 extern handler_node *process_handler_list( handler_node *, handler_node *);
 extern stmt_node *process_stmt( char *, INSTR * );
 extern stmt_node *process_stmt_list( stmt_node *, stmt_node * );
+extern int verify_handlers( handler_node * );
 // called to process one line of input
 //   called on each pass
 extern void assemble(char *, INSTR);
