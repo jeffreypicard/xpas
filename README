@@ -1,5 +1,7 @@
 xpas
-====
+==== 
 Assembler for the XPVM.
 
-Currently this is mostly as520 and is being ported to XPVM.
+The assembler currently parses xpvm assembler formatted programs and can encode
+a few instructions. Enough to generate a rudimentary xpvm object file with the
+VM can run.
