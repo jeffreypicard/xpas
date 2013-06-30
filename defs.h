@@ -68,6 +68,12 @@ typedef struct instruction {
     } u;
 } INSTR;
 
+struct stmt_node {
+  char *label;
+  INSTR *instr;
+  struct stmt_node *link;
+} typedef stmt_node;
+
 struct handler_node {
   char  *handle_lbl;
   char  *start_lbl;
@@ -80,14 +86,22 @@ struct handler_node {
 
 struct func_node {
   char  *name;
+  unsigned int length;
   int   addr;
   handler_node *handlers;
+  stmt_node *stmts;
   struct func_node *link;
 } typedef func_node;
 
-extern void process_func( char *, char *, handler_node *);
+void encode_funcs( func_node * );
+
+extern func_node *func_list;
+extern func_node *process_func( char *, char *, handler_node *, stmt_node * );
+extern func_node *process_func_list( func_node *, func_node * );
 extern handler_node *process_handler( char *, char *, char *);
 extern handler_node *process_handler_list( handler_node *, handler_node *);
+extern stmt_node *process_stmt( char *, INSTR * );
+extern stmt_node *process_stmt_list( stmt_node *, stmt_node * );
 // called to process one line of input
 //   called on each pass
 extern void assemble(char *, INSTR);

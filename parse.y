@@ -7,6 +7,7 @@
 %{
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "defs.h"
 
 extern unsigned int parseErrorCount;
@@ -23,11 +24,13 @@ void yyerror(char *s);
 //      this types the semantic stack
 //
 %union  {
-        char *        y_str;
+        char          *y_str;
         unsigned int  y_reg;
         int           y_int;
-        INSTR         y_instr;
-        handler_node *y_handle;
+        INSTR         *y_instr;
+        handler_node  *y_handle;
+        stmt_node     *y_stmt;
+        func_node     *y_func;
         }
 
 //
@@ -53,22 +56,38 @@ void yyerror(char *s);
 %type         <y_instr>      instruction
 %type         <y_handle>     handler
 %type         <y_handle>     handler_list
+%type         <y_stmt>       stmt
+%type         <y_stmt>       stmt_list
+%type         <y_func>       func
+%type         <y_func>       func_list
 
 %%
 
 program
         : func_list
+        {
+          if ( $1 )
+          {
+            func_list = $1;
+          }
+        }
         ;
 
 func_list
         : /* null derive */
+        {
+          $$ = NULL;
+        }
         | func func_list
+        {
+          $$ = process_func_list( $1, $2 );
+        }
         ;
 
 func
-        : FUNC ID EOL handler_list stmt stmt_list END ID EOL
+        : FUNC ID EOL handler_list stmt_list END ID EOL
           {
-            process_func( $2, $8, $4 );
+            $$ = process_func( $2, $7, $4, $5 );
           }
         ;
 
@@ -92,33 +111,42 @@ handler
 
 stmt_list
         : // null derive
-
+          {
+            $$ = NULL;
+          }
         | stmt stmt_list
-
+          {
+            $$ = process_stmt_list( $1, $2 );
+          }
         ;
 
 stmt
         : label instruction EOL
           {
-             assemble($1, $2);
+            $$ = process_stmt( $1, $2 );
+            // assemble($1, $2);
           }
         | instruction EOL
           {
-             assemble(NULL, $1);
+            $$ = process_stmt( NULL, $1 );
+            // assemble(NULL, $1);
           }
         | label EOL
           {
-             INSTR nullInstr;
-             nullInstr.format = 0;
-             assemble($1, nullInstr);
+             //INSTR nullInstr;
+             //nullInstr.format = 0;
+             //assemble($1, nullInstr);
+             INSTR *null_instr = calloc( 1, sizeof *null_instr );
+             null_instr->format = 0;
+             $$ = process_stmt( $1, null_instr );
           }
         | EOL
           {
-             // no action
+             $$ = NULL;// no action
           }
         | error EOL
           {
-             // error recovery - sync with end-of-line
+             $$ = NULL;// error recovery - sync with end-of-line
           }
         ;
 
@@ -132,71 +160,80 @@ label
 instruction
         : opcode
           {
-             $$.format = 1;
-             $$.opcode = $1;
+            $$ = calloc( 1, sizeof(INSTR) );
+            $$->format = 1;
+            $$->opcode = $1;
           }
         |
           opcode ID
           {
-             $$.format = 2;
-             $$.opcode = $1;
-             $$.u.format2.addr = $2;
+            $$ = calloc( 1, sizeof(INSTR) );
+            $$->format = 2;
+            $$->opcode = $1;
+            $$->u.format2.addr = $2;
           }
         |
           opcode REG
           {
-             $$.format = 3;
-             $$.opcode = $1;
-             $$.u.format3.reg = $2;
+            $$ = calloc( 1, sizeof(INSTR) );
+            $$->format = 3;
+            $$->opcode = $1;
+            $$->u.format3.reg = $2;
           }
         |
           opcode REG COMMA INT_CONST
           {
-             $$.format = 4;
-             $$.opcode = $1;
-             $$.u.format4.reg = $2;
-             $$.u.format4.constant = $4;
+            $$ = calloc( 1, sizeof(INSTR) );
+            $$->format = 4;
+            $$->opcode = $1;
+            $$->u.format4.reg = $2;
+            $$->u.format4.constant = $4;
           }
         |
           opcode REG COMMA ID
           {
-             $$.format = 5;
-             $$.opcode = $1;
-             $$.u.format5.reg = $2;
-             $$.u.format5.addr = $4;
+            $$ = calloc( 1, sizeof(INSTR) );
+            $$->format = 5;
+            $$->opcode = $1;
+            $$->u.format5.reg = $2;
+            $$->u.format5.addr = $4;
           }
         |
           opcode REG COMMA REG
           {
-             $$.format = 6;
-             $$.opcode = $1;
-             $$.u.format6.reg1 = $2;
-             $$.u.format6.reg2 = $4;
+            $$ = calloc( 1, sizeof(INSTR) );
+            $$->format = 6;
+            $$->opcode = $1;
+            $$->u.format6.reg1 = $2;
+            $$->u.format6.reg2 = $4;
           }
         |
           opcode REG COMMA INT_CONST LPAREN REG RPAREN
           {
-             $$.format = 7;
-             $$.opcode = $1;
-             $$.u.format7.reg1 = $2;
-             $$.u.format7.offset = $4;
-             $$.u.format7.reg2 = $6;
+            $$ = calloc( 1, sizeof(INSTR) );
+            $$->format = 7;
+            $$->opcode = $1;
+            $$->u.format7.reg1 = $2;
+            $$->u.format7.offset = $4;
+            $$->u.format7.reg2 = $6;
           }
         |
           opcode REG COMMA REG COMMA ID
           {
-             $$.format = 8;
-             $$.opcode = $1;
-             $$.u.format8.reg1 = $2;
-             $$.u.format8.reg2 = $4;
-             $$.u.format8.addr = $6;
+            $$ = calloc( 1, sizeof(INSTR) );
+            $$->format = 8;
+            $$->opcode = $1;
+            $$->u.format8.reg1 = $2;
+            $$->u.format8.reg2 = $4;
+            $$->u.format8.addr = $6;
           }
         |
           opcode INT_CONST
           {
-             $$.format = 9;
-             $$.opcode = $1;
-             $$.u.format9.constant = $2;
+            $$ = calloc( 1, sizeof(INSTR) );
+            $$->format = 9;
+            $$->opcode = $1;
+            $$->u.format9.constant = $2;
           }
         ;
 

@@ -119,7 +119,7 @@ int main(int argc, char *argv[])
   // invoke parser to drive the second pass
   yyparse();
 
-
+  encode_funcs( func_list );
   // close the files
   fclose(outf);
   fclose(yyin);

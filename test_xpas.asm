@@ -6,9 +6,11 @@
 func main
 exception handle, start, stop
 start:
-  ldimm   r3, 1
+  ldimm   r3, 42
+  cvtld   r6, r3
+  ldimm   r4, 1
 stop:
   ldimm   r5, 0
 handle:
-  halt
+  ret r5, r6
 end main

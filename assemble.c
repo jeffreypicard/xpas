@@ -15,9 +15,6 @@
 #define PRINT_DEFINED_LABELS 1
 
 /*
- * Structs
- */
-/*
  * Globals
  */
 
@@ -25,7 +22,7 @@
 //static handler_node *handler_list = NULL;
 
 /* List of all declared functions */
-static func_node *func_list = NULL;
+func_node *func_list = NULL;
 
 // track which pass we are on
 static int currentPass = 1;
@@ -59,6 +56,7 @@ static void *referenceInitIterator(void *symRec);
 static unsigned int referenceNext(void *inIter, unsigned int *outFormat);
 
 // forward reference to private debug routines
+static void dump_stmts( stmt_node *);
 #if DEBUG
 static void dumpInstrStruct(INSTR instr);
 static void dumpSymbolTable(void);
@@ -87,7 +85,7 @@ static unsigned int fitIn20(int value);
 static void checkAddr(char*, unsigned int def, unsigned int ref,
                      unsigned int format);
 
-static void func_pass1( char *, handler_node * );
+static func_node *func_pass1( char *, handler_node *, stmt_node * );
 static void func_pass2( char * );
 static handler_node *handler_pass1( char *, char *, char * );
 static handler_node *handler_pass2( char *, char *, char * );
@@ -109,7 +107,157 @@ void initAssemble(void)
 #endif
 }
 
-void process_func( char *id1, char *id2, handler_node *handlers )
+static void encode_stmt( stmt_node *stmt )
+{
+  // if there is not an instruction then we are done
+  if (stmt->instr->format == 0)
+  {
+    return;
+  }
+
+  // also can skip the import and export directives
+  if (!strcmp(stmt->instr->opcode, "export") || !strcmp(stmt->instr->opcode, "import"))
+  {
+    return;
+  }
+
+  // now handle the remaining directives
+  if (!strcmp(stmt->instr->opcode, "alloc"))
+  {
+    // need to add to currentLength
+    int len = (stmt->instr->u.format9.constant);
+    currentLength += len;
+    int i;
+    for (i = 0; i < len; i += 1)
+    {
+      outputWord(0);
+    }
+    return;
+  }
+  if (!strcmp(stmt->instr->opcode, "word"))
+  {
+    currentLength += 1;
+    outputWord(stmt->instr->u.format9.constant);
+    return;
+  }
+
+  // now handle the instructions
+  // go ahead and count the word to be encoded
+  //   so currentLength will be equal to what PC will be when it executes
+  currentLength += 1;
+
+  // get the opcode encoding
+  char encodedOpcode = getOpcodeEncoding(stmt->instr->opcode);
+
+  // now handle the different instruction formats
+  int encodedAddr;
+  switch (stmt->instr->format)
+  {
+    case 1:
+      outputWord(encodedOpcode);
+      break;
+    case 2:
+      encodedAddr = encodeAddr20(stmt->instr->u.format2.addr, currentLength);
+      outputWord((encodedAddr << 12) |
+                 (encodedOpcode));
+      break;
+    case 3:
+      outputWord((stmt->instr->u.format3.reg << 16) |
+                 (encodedOpcode << 24));
+      break;
+    case 4:
+      outputWord((stmt->instr->u.format4.constant) |
+                 (stmt->instr->u.format4.reg << 16) |
+                 (encodedOpcode << 24));
+      break;
+    case 5:
+      encodedAddr = encodeAddr20(stmt->instr->u.format5.addr, currentLength);
+      outputWord((encodedAddr << 12) |
+                 (stmt->instr->u.format5.reg << 8) |
+                 (encodedOpcode));
+      break;
+    case 6:
+      outputWord((stmt->instr->u.format6.reg2 << 8) |
+                 (stmt->instr->u.format6.reg1 << 16) |
+                 (encodedOpcode << 24));
+      break;
+    case 7:
+      outputWord((stmt->instr->u.format7.offset << 16) |
+                 (stmt->instr->u.format7.reg2 << 12) |
+                 (stmt->instr->u.format7.reg1 << 8) |
+                 (encodedOpcode));
+      break;
+    case 8:
+      encodedAddr = encodeAddr16(stmt->instr->u.format8.addr, currentLength);
+      outputWord((encodedAddr << 16) |
+                 (stmt->instr->u.format8.reg2 << 12) |
+                 (stmt->instr->u.format8.reg1 << 8) |
+                 (encodedOpcode));
+      break;
+    default:
+      bug("unexpected format (%d) seen in stmt_encode", stmt->instr->format);
+  }
+
+}
+
+void encode_stmts( stmt_node *stmts )
+{
+  stmt_node *walk = stmts;
+  while (walk)
+  {
+    encode_stmt( walk );
+    walk = walk->link;
+  }
+}
+
+void encode_func( func_node *func )
+{
+  char *name = func->name;
+  while( *name )
+    putc( *name++, fp );
+  putc( 0x00, fp );
+  /* annotations */
+  outputWord( 0 );
+  outputWord( 2 );
+  /* frame size */
+  outputWord( 0 );
+  /* contents length */
+  outputWord( func->length*4 );
+  encode_stmts( func->stmts );
+  /* number exception handlers */
+  outputWord( 0 );
+  /* number outsymbol references */
+  outputWord( 0 );
+  /* number native functions references */
+  outputWord( 0 );
+  /* auxiliary data length */
+  outputWord( 0 );
+}
+
+void encode_funcs( func_node *func_list )
+{
+  func_node *walk = func_list;
+  while (walk)
+  {
+    fprintf( stderr, "encoding func!\n");
+    encode_func( walk );
+    walk = walk->link;
+  }
+}
+
+func_node *process_func_list( func_node *node, func_node *list )
+{
+  if (node)
+  {
+    node->link = list;
+    return node;
+  }
+  else
+    return NULL;
+}
+
+func_node *process_func( char *id1, char *id2, handler_node *handlers, 
+                   stmt_node *stmts )
 {
   fprintf( stderr, "processing func!\n");
   if ( strcmp( id1, id2) )
@@ -120,15 +268,17 @@ void process_func( char *id1, char *id2, handler_node *handlers )
   switch ( currentPass )
   {
     case 1:
-      func_pass1( id1, handlers );
+      return func_pass1( id1, handlers, stmts );
       break;
     case 2:
-      func_pass2( id1 );
+      return NULL;
+      //func_pass2( id1 );
       break;
     default:
       bug("unexpected current pass number (%d) in process_func\n", 
           currentPass);
   }
+  return NULL;
 }
 
 handler_node *process_handler( char *handle, char *start, char *end )
@@ -240,9 +390,9 @@ int betweenPasses(FILE *outf)
   if (!errorCount)
   {
     output_header();
-    outputHeaders();
-    outputInsymbols();
-    outputOutsymbols();
+    //outputHeaders();
+    //outputInsymbols();
+    //outputOutsymbols();
   }
 
   // reset currentLength for pass2
@@ -255,20 +405,39 @@ int betweenPasses(FILE *outf)
  * function processing routines                                     *
  ********************************************************************/
 
+unsigned int stmt_list_length( stmt_node *stmt_list )
+{
+  unsigned int length = 0;
+  stmt_node *walk = stmt_list;
+
+  while (walk)
+  {
+    if (walk->instr->format != 0 )
+      length += 1;
+    walk = walk->link;
+  }
+
+  return length;
+}
+
 /*
  * func_pass1
  *
  * processing a function declaration on pass 1
  */
-static void func_pass1( char *id, handler_node *handlers )
+static func_node *func_pass1( char *id, handler_node *handlers, 
+                              stmt_node *stmts )
 {
   func_node *new = calloc( 1, sizeof *new );
   if ( !new )
     fatal("malloc failed in func_pass1");
   new->name = id;
   new->handlers = handlers;
-  func_push( &func_list, new );
+  new->stmts = stmts;
+  new->length = stmt_list_length( stmts );
+  //func_push( &func_list, new );
   num_blocks += 1;
+  return new;
 }
 
 /*
@@ -293,6 +462,19 @@ static void func_push( func_node **root, func_node *new )
   *root = new;
 }
 
+static void dump_stmts( stmt_node *stmts )
+{
+  stmt_node *walk = stmts;
+  while (walk)
+  {
+    if( walk->instr->format != 0 )
+      dumpInstrStruct( *walk->instr );
+    else
+      fprintf( stderr, "%s:\n", walk->label );
+    walk = walk->link;
+  }
+}
+
 /*
  * dump_funcs
  *
@@ -306,6 +488,7 @@ static void dump_funcs( func_node *root )
   {
     fprintf( stderr, "%s\n", walk->name );
     dump_handlers( walk->handlers );
+    dump_stmts( walk->stmts );
     walk = walk->link;
   }
   fprintf(stderr, "====================================================\n");
@@ -375,7 +558,36 @@ static void dump_handlers( handler_node *root )
   fprintf(stderr, "====================================================\n");
 }
 
+static stmt_node *assemble_pass1( char *, INSTR * );
 
+stmt_node *process_stmt( char *label, INSTR *instr )
+{
+  fprintf( stderr, "processing handler!\n");
+  switch ( currentPass )
+  {
+    case 1:
+      return assemble_pass1( label, instr );
+      break;
+    case 2:
+      return NULL;
+      break;
+    default:
+      bug("unexpected current pass number (%d) in process_stmt\n", 
+          currentPass);
+  }
+  return NULL;
+}
+
+stmt_node *process_stmt_list( stmt_node *node, stmt_node *list )
+{
+  if (node)
+  {
+    node->link = list;
+    return node;
+  }
+  else
+    return NULL;
+}
 
 //////////////////////////////////////////////////////////////////////////
 // the two main assembly routines, one for each pass
@@ -384,6 +596,126 @@ static void dump_handlers( handler_node *root )
 //
 // process a line during pass 1
 //
+static stmt_node *assemble_pass1( char *label, INSTR *instr )
+{
+  stmt_node *new = calloc( 1, sizeof *new );
+  new->label = label;
+  new->instr = instr;
+  // first handle the label, if one
+  if (label && !symtabInstallDefinition(label, currentLength))
+  {
+    error("label %s already defined", label);
+    errorCount += 1;
+  }
+
+  // if there is not an instruction then we are done
+  if (instr->format == 0)
+  {
+    return new;
+  }
+
+  // sanity check for instruction format
+  if (instr->format > 9)
+  {
+    bug("bogus format (%d) seen in assemblePass1", instr->format);
+  }
+
+  // if there is an instruction, go ahead and count its word
+  //   so currentLength will be equal to what PC will be when it executes
+  currentLength += 1;
+
+  // verify the opcode
+  int format = verifyOpcode(instr->opcode);
+  if (format == 0)
+  {
+    error("unknown opcode");
+    errorCount += 1;
+    return NULL;
+  }
+
+  // does the opcode match the structure of the line?
+  if (format != instr->format)
+  {
+    error("opcode does not match the given operands");
+    errorCount += 1;
+    return NULL;
+  }
+
+  // first handle the directives which have the special encoding of 0xFF
+  if(getOpcodeEncoding(instr->opcode) == 0xFF)
+  {
+    if (!strcmp(instr->opcode, "alloc"))
+    {
+      // need to verify its constant is greater than zero
+      if (instr->u.format9.constant <= 0)
+      {
+        error("constant must be greater than zero");
+        instr->u.format9.constant = 0; // squash other errors
+        errorCount += 1;
+      }
+
+      // need to add to currentLength, remember one has already been added
+      currentLength += (instr->u.format9.constant - 1);
+    }
+    else if (!strcmp(instr->opcode, "word"))
+    {
+      // actually nothing to do here!
+      //   constant has already been verified to fit in 32 bits
+    }
+    else if (!strcmp(instr->opcode, "export"))
+    {
+      // this directive takes no space
+      currentLength -= 1;
+      symtabInstallExport(instr->u.format2.addr);
+    }
+    else if (!strcmp(instr->opcode, "import"))
+    {
+      // this directive takes no space
+      currentLength -= 1;
+      symtabInstallImport(instr->u.format2.addr);
+    }
+    else
+    {
+      bug("bogus encoding 0xFF for opcode %s", instr->opcode);
+    }
+  }
+  else
+  {
+    // now process the instructions
+    // stash the references to symbols for later processing
+    // and check the constants and offsets to see if they will fit 
+    switch (instr->format)
+    {
+      case 2:
+        symtabInstallReference(instr->u.format2.addr, currentLength - 1, 2);
+        break;
+      case 4:
+        if (!fitIn20(instr->u.format4.constant))
+        {
+          error("constant %d will not fit in 20 bits",
+            instr->u.format4.constant);
+          errorCount += 1;
+        }
+        break;
+      case 5:
+        symtabInstallReference(instr->u.format5.addr, currentLength - 1, 5);
+        break;
+      case 7:
+        if (!fitIn16(instr->u.format7.offset))
+        {
+          error("offset %d will not fit in 16 bits",
+            instr->u.format7.offset);
+          errorCount += 1;
+        }
+        break;
+      case 8:
+        symtabInstallReference(instr->u.format8.addr, currentLength - 1, 8);
+        break;
+    }
+  }
+  return new;
+}
+
 static void assemblePass1(char *label, INSTR instr)
 {
   // first handle the label, if one
@@ -651,6 +983,7 @@ static void outputSymbol(char *id)
 // instruction format and their encoding. Of course, only instructions
 // have encodings.
 //
+#if 0
 static struct opcodeInfo
 {
    char*          opcode;
@@ -690,11 +1023,11 @@ opcodes[] =
 {"import",  2, 0xFF},
 {"export",  2, 0xFF}
 };
-
+#endif
 //
 // xpvm opcodes
 //
-#if 0
+#if 1
 static struct opcodeInfo
 {
    char*          opcode;
@@ -703,19 +1036,19 @@ static struct opcodeInfo
 }
 opcodes[] =
 {
-{"ldb",                   2, 0x02},
-{"ldb",                   3, 0x03},
-{"lds",                   2, 0x04},
-{"lds",                   3, 0x05},
-{"ldi",                   2, 0x06},
-{"ldi",                   3, 0x07},
-{"ldl",                   2, 0x08},
-{"ldl",                   3, 0x09},
-{"ldf",                   2, 0x0A},
-{"ldf",                   3, 0x0B},
-{"ldd",                   2, 0x0C},
-{"ldd",                   3, 0x0D},
-{"ldimm",                 0, 0x0E},
+{"ldb",                   0, 0x02},
+{"ldb",                   0, 0x03},
+{"lds",                   0, 0x04},
+{"lds",                   0, 0x05},
+{"ldi",                   0, 0x06},
+{"ldi",                   0, 0x07},
+{"ldl",                   0, 0x08},
+{"ldl",                   0, 0x09},
+{"ldf",                   0, 0x0A},
+{"ldf",                   0, 0x0B},
+{"ldd",                   0, 0x0C},
+{"ldd",                   0, 0x0D},
+{"ldimm",                 4, 0x0E},
 {"ldimm2",                0, 0x0F},
 {"stb",                   0, 0x10},
 {"stb",                   0, 0x11},
@@ -747,7 +1080,7 @@ opcodes[] =
 {"muld",                  0, 0x2D},
 {"divd",                  0, 0x2E},
 {"negd",                  0, 0x2F},
-{"cvtld",                 0, 0x30},
+{"cvtld",                 6, 0x30},
 {"cvtdl",                 0, 0x31},
 {"lshift",                0, 0x32},
 {"lshift",                0, 0x33},
@@ -771,7 +1104,7 @@ opcodes[] =
 {"cmpult",                0, 0x49},
 {"fcmpeq",                0, 0x4A},
 {"fcmple",                0, 0x4B},
-{"fcmplt",                0, 0x4C}
+{"fcmplt",                0, 0x4C},
 {"jmp",                   0, 0x50},
 {"jmp",                   0, 0x51},
 {"btrue",                 0, 0x52},
@@ -784,7 +1117,7 @@ opcodes[] =
 {"get_owner",             0, 0x65},
 {"call",                  0, 0x72},
 {"calln",                 0, 0x73},
-{"ret",                   0, 0x74},
+{"ret",                   6, 0x74},
 {"throw",                 0, 0x80},
 {"retrieve",              0, 0x81},
 {"init_proc",             0, 0x90},
@@ -851,7 +1184,8 @@ static void dumpInstrStruct(INSTR instr)
 {
   if (instr.format != 0)
   {
-    fprintf(stderr, "  instruction is %s", instr.opcode);
+    //fprintf(stderr, "  instruction is %s", instr.opcode);
+    fprintf(stderr, "\t%s", instr.opcode);
     switch(instr.format)
     {
       case 1:
@@ -1139,7 +1473,7 @@ struct iteratorSym
 
 //  symtabInitIter
 //
-//  initializes an iterator to traverse symbol table
+
 //
 //  NOTE: symbol table should not be modified during an iterator
 //        sequence!
