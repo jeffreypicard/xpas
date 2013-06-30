@@ -23,10 +23,11 @@ void yyerror(char *s);
 //      this types the semantic stack
 //
 %union  {
-        char *       y_str;
-        unsigned int y_reg;
-        int          y_int;
-        INSTR        y_instr;
+        char *        y_str;
+        unsigned int  y_reg;
+        int           y_int;
+        INSTR         y_instr;
+        handler_node *y_handle;
         }
 
 //
@@ -50,11 +51,13 @@ void yyerror(char *s);
 %type         <y_str>        opcode
 %type         <y_str>        label
 %type         <y_instr>      instruction
+%type         <y_handle>     handler
+%type         <y_handle>     handler_list
 
 %%
 
 program
-        : handler_list func_list
+        : func_list
         ;
 
 func_list
@@ -63,21 +66,27 @@ func_list
         ;
 
 func
-        : FUNC ID EOL stmt stmt_list END ID EOL
+        : FUNC ID EOL handler_list stmt stmt_list END ID EOL
           {
-            process_func( $2, $7 );
+            process_func( $2, $8, $4 );
           }
         ;
 
 handler_list
         : /* null derive */
+          {
+            $$ = NULL;
+          }
         | handler handler_list
+          {
+            $$ = process_handler_list( $1, $2 );
+          }
         ;
 
 handler
         : EXCEPTION ID COMMA ID COMMA ID EOL
           {
-            process_handler( $2, $4, $6 );
+            $$ = process_handler( $2, $4, $6 );
           }
         ;
 

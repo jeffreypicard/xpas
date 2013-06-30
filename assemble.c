@@ -17,28 +17,12 @@
 /*
  * Structs
  */
-struct handler_node {
-  char  *handle_lbl;
-  char  *start_lbl;
-  char  *end_lbl;
-  int   handle_addr;
-  int   start_addr;
-  int   end_addr;
-  struct handler_node *link;
-} typedef handler_node;
-
-struct func_node {
-  char  *name;
-  int   addr;
-  struct func_node *link;
-} typedef func_node;
-
 /*
  * Globals
  */
 
 /* List of all declared exception handlers */
-static handler_node *handler_list = NULL;
+//static handler_node *handler_list = NULL;
 
 /* List of all declared functions */
 static func_node *func_list = NULL;
@@ -103,14 +87,16 @@ static unsigned int fitIn20(int value);
 static void checkAddr(char*, unsigned int def, unsigned int ref,
                      unsigned int format);
 
-static void func_pass1( char * );
+static void func_pass1( char *, handler_node * );
 static void func_pass2( char * );
-static void handler_pass1( char *, char *, char * );
-static void handler_pass2( char *, char *, char * );
+static handler_node *handler_pass1( char *, char *, char * );
+static handler_node *handler_pass2( char *, char *, char * );
 static void func_push( func_node **, func_node * );
 static void handler_push( handler_node **, handler_node * );
 static void dump_funcs( func_node * );
 static void dump_handlers( handler_node * );
+
+static int verify_handlers( handler_node * );
 //////////////////////////////////////////////////////////////////////////
 // public entry points
 
@@ -123,8 +109,9 @@ void initAssemble(void)
 #endif
 }
 
-void process_func( char *id1, char *id2 )
+void process_func( char *id1, char *id2, handler_node *handlers )
 {
+  fprintf( stderr, "processing func!\n");
   if ( strcmp( id1, id2) )
   {
     error("start and end ids for functions must match.");
@@ -133,7 +120,7 @@ void process_func( char *id1, char *id2 )
   switch ( currentPass )
   {
     case 1:
-      func_pass1( id1 );
+      func_pass1( id1, handlers );
       break;
     case 2:
       func_pass2( id1 );
@@ -144,20 +131,33 @@ void process_func( char *id1, char *id2 )
   }
 }
 
-void process_handler( char *handle, char *start, char *end )
+handler_node *process_handler( char *handle, char *start, char *end )
 {
+  fprintf( stderr, "processing handler!\n");
   switch ( currentPass )
   {
     case 1:
-      handler_pass1( handle, start, end );
+      return handler_pass1( handle, start, end );
       break;
     case 2:
-      handler_pass2( handle, start, end );
+      return handler_pass2( handle, start, end );
       break;
     default:
       bug("unexpected current pass number (%d) in process_handler\n", 
           currentPass);
   }
+  return NULL;
+}
+
+handler_node *process_handler_list( handler_node *node, handler_node *list )
+{
+  if (node)
+  {
+    node->link = list;
+    return node;
+  }
+  else
+    return NULL;
 }
 
 // this is the "guts" of the assembler and is called for each line
@@ -208,7 +208,10 @@ int betweenPasses(FILE *outf)
 #if DEBUG
   fprintf(stderr, "betweenPasses called\n");
   dumpSymbolTable();
+  dump_funcs( func_list );
+  //dump_handlers( handler_list );
 #endif
+  //verify_handlers( handler_list );
 
 #if PRINT_DEFINED_LABELS
   printDefinedLabels();
@@ -257,12 +260,13 @@ int betweenPasses(FILE *outf)
  *
  * processing a function declaration on pass 1
  */
-static void func_pass1( char *id )
+static void func_pass1( char *id, handler_node *handlers )
 {
   func_node *new = calloc( 1, sizeof *new );
   if ( !new )
     fatal("malloc failed in func_pass1");
   new->name = id;
+  new->handlers = handlers;
   func_push( &func_list, new );
   num_blocks += 1;
 }
@@ -292,18 +296,19 @@ static void func_push( func_node **root, func_node *new )
 /*
  * dump_funcs
  *
- * Print out imformation about all declared functions.
+ * Print out information about all declared functions.
  */
 static void dump_funcs( func_node *root )
 {
   func_node *walk = root;
-  fprintf(stderr, "function list dump===================================\n");
+  fprintf(stderr, "function list dump==================================\n");
   while ( walk )
   {
     fprintf( stderr, "%s\n", walk->name );
+    dump_handlers( walk->handlers );
     walk = walk->link;
   }
-  fprintf(stderr, "======================================================\n");
+  fprintf(stderr, "====================================================\n");
 }
 
 /********************************************************************
@@ -315,7 +320,7 @@ static void dump_funcs( func_node *root )
  *
  * processing an exception handler  declaration on pass 1
  */
-static void handler_pass1( char *handle, char *start, char *end )
+static handler_node *handler_pass1( char *handle, char *start, char *end )
 {
   handler_node *new = calloc( 1, sizeof *new );
   if ( !new )
@@ -323,8 +328,9 @@ static void handler_pass1( char *handle, char *start, char *end )
   new->handle_lbl = handle;
   new->start_lbl = start;
   new->end_lbl = end;
-  handler_push( &handler_list, new );
+  //handler_push( &handler_list, new );
   num_handlers += 1;
+  return new;
 }
 
 /*
@@ -332,8 +338,9 @@ static void handler_pass1( char *handle, char *start, char *end )
  *
  * processing an exception handler declaration on pass 2
  */
-static void handler_pass2( char *handle, char *start, char *end )
+static handler_node *handler_pass2( char *handle, char *start, char *end )
 {
+  return NULL;
 }
 
 /*
@@ -352,7 +359,7 @@ static void handler_push( handler_node **root, handler_node *new )
 /*
  * dump_handlers
  *
- * Print out imformation about all declared exception handlers.
+ * Print out information about all declared exception handlers.
  */
 static void dump_handlers( handler_node *root )
 {
@@ -1465,6 +1472,79 @@ static void dumpSymbolTable(void)
   fprintf(stderr, "====================================================\n");
 }
 #endif
+
+/*
+ * get_symbol_addr
+ *
+ * Takes a symbol as a string and returns its address in the
+ * file. Returns -1 if the symbol is not defined.
+ */
+static int get_symbol_addr( const char *symbol )
+{
+  void *iter = symtabInitIterator();
+  SYMTAB_REC *p = symtabNext(iter);
+  while (p)
+  {
+    if (!strcmp(p->id, symbol))
+      return p->addr;
+    p = symtabNext(iter);
+  }
+  return -1;
+}
+
+/*
+ * populate_handler_addrs
+ *
+ * Takes a handler and populates the addresses of the labels.
+ * If any labels are not defined the address if set to -1.
+ * Returns 0 on success, -1 if any labels are not defined.
+ */
+static int populate_handler_addrs( handler_node *handler )
+{
+  int ret = 0;
+  if ( (handler->handle_addr = get_symbol_addr( handler->handle_lbl )) < 0 )
+  {
+    error("handle symbol '%s' in handler declaration not defined", 
+          handler->handle_lbl );
+    errorCount += 1;
+    ret = -1;
+  }
+  if ( (handler->start_addr = get_symbol_addr( handler->start_lbl )) < 0 )
+  {
+    error("start symbol '%s' in handler declaration not defined", 
+          handler->start_lbl );
+    errorCount += 1;
+    ret = -1;
+  }
+  if ( (handler->end_addr = get_symbol_addr( handler->end_lbl )) < 0 )
+  {
+    error("end symbol '%s' in handler declaration not defined", 
+          handler->end_lbl );
+    errorCount += 1;
+    ret = -1;
+  }
+  return ret;
+}
+
+/*
+ * verify_handlers
+ *
+ * Takes the head of a list of handlers and verifies each one.
+ * This involves verifying the symbols are defined and filling
+ * in their address in the handler structs.
+ */
+static int verify_handlers( handler_node *root )
+{
+  int ret = 0;
+  handler_node *walk = root;
+  while( walk )
+  {
+    if ( (populate_handler_addrs(walk)) < 0 )
+      ret = -1;
+    walk = walk->link;
+  }
+  return ret;
+}
 
 // encodeAddr20
 //

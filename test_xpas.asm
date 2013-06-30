@@ -3,8 +3,8 @@
 #
 # Test program for parsing xpas assembly files.
 #
-exception handle, start, stop
 func main
+exception handle, start, stop
 start:
   ldimm   r3, 1
 stop:
