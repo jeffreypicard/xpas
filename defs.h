@@ -55,7 +55,7 @@ typedef struct instruction {
       struct format7 {
         unsigned int reg1;
         unsigned int reg2;
-        int offset;
+        int const8;
       } format7;
       struct format8 {
         unsigned int reg1;
@@ -65,6 +65,11 @@ typedef struct instruction {
       struct format9 {
         int constant;
       } format9;
+      struct format10 {
+        unsigned int reg1;
+        unsigned int reg2;
+        unsigned int reg3;
+      } format10;
     } u;
 } INSTR;
 
@@ -88,8 +93,9 @@ struct func_node {
   char  *name;
   unsigned int length;
   int   addr;
-  handler_node *handlers;
-  stmt_node *stmts;
+  handler_node *handler_list;
+  unsigned int num_handlers;
+  stmt_node *stmt_list;
   struct func_node *link;
 } typedef func_node;
 
@@ -102,10 +108,11 @@ extern handler_node *process_handler( char *, char *, char *);
 extern handler_node *process_handler_list( handler_node *, handler_node *);
 extern stmt_node *process_stmt( char *, INSTR * );
 extern stmt_node *process_stmt_list( stmt_node *, stmt_node * );
-extern int verify_handlers( handler_node * );
+extern int verify_handler_list( handler_node * );
 // called to process one line of input
 //   called on each pass
 extern void assemble(char *, INSTR);
+extern void initAssemble(void);
 
 // called between passes
 //   returns number of errors detected during the first pass

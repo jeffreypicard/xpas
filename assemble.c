@@ -40,9 +40,6 @@ static unsigned int currentLength = 0;
 /* number of block the object file will contain */
 static int num_blocks = 0;
 
-/* number of exception handlers declared */
-static int num_handlers = 0;
-
 // forward references for private symbol table routines
 static void *symtabLookup(char *id);
 static int symtabInstallDefinition(char *id, unsigned int addr);
@@ -56,7 +53,7 @@ static void *referenceInitIterator(void *symRec);
 static unsigned int referenceNext(void *inIter, unsigned int *outFormat);
 
 // forward reference to private debug routines
-static void dump_stmts( stmt_node *);
+static void dump_stmt_list( stmt_node *);
 #if DEBUG
 static void dumpInstrStruct(INSTR instr);
 static void dumpSymbolTable(void);
@@ -66,20 +63,15 @@ static void printDefinedLabels(void);
 #endif
 
 // forward reference to the private assemble routines
-static void assemblePass1(char*, INSTR);
-static void assemblePass2(char*, INSTR);
 static int verifyOpcode(char *opcode);
 static int getOpcodeEncoding(char *opcode);
 static void outputWord(int value);
-//static void outputSymbol(char *id);
 static unsigned int checkForImportExportErrors(void);
 static void checkForAddressErrors(void);
-//static void outputHeaders(void);
 static void output_header(void);
-//static void outputInsymbols(void);
-//static void outputOutsymbols(void);
 static int encodeAddr20(char*, unsigned int);
 static int encodeAddr16(char*, unsigned int);
+static unsigned int fit_in_8(int value);
 static unsigned int fitIn16(int value);
 static unsigned int fitIn20(int value);
 static void checkAddr(char*, unsigned int def, unsigned int ref,
@@ -90,9 +82,9 @@ static func_node *func_pass1( char *, handler_node *, stmt_node * );
 static handler_node *handler_pass1( char *, char *, char * );
 static handler_node *handler_pass2( char *, char *, char * );
 static void dump_funcs( func_node * );
-static void dump_handlers( handler_node * );
+static void dump_handler_list( handler_node * );
 
-int verify_handlers( handler_node * );
+int verify_handler_list( handler_node * );
 //////////////////////////////////////////////////////////////////////////
 // public entry points
 
@@ -175,22 +167,28 @@ static void encode_stmt( stmt_node *stmt )
                  (encodedOpcode));
       break;
     case 6:
-      outputWord((stmt->instr->u.format6.reg2 << 8) |
+      outputWord((encodedOpcode << 24) |
                  (stmt->instr->u.format6.reg1 << 16) |
-                 (encodedOpcode << 24));
+                 (stmt->instr->u.format6.reg2 << 8));
       break;
     case 7:
-      outputWord((stmt->instr->u.format7.offset << 16) |
-                 (stmt->instr->u.format7.reg2 << 12) |
-                 (stmt->instr->u.format7.reg1 << 8) |
-                 (encodedOpcode));
+      outputWord((encodedOpcode << 24) |
+                 (stmt->instr->u.format7.reg1 << 16) |
+                 (stmt->instr->u.format7.reg2 << 8) |
+                 (stmt->instr->u.format7.const8));
       break;
     case 8:
       encodedAddr = encodeAddr16(stmt->instr->u.format8.addr, currentLength);
-      outputWord((encodedAddr << 16) |
-                 (stmt->instr->u.format8.reg2 << 12) |
-                 (stmt->instr->u.format8.reg1 << 8) |
-                 (encodedOpcode));
+      outputWord((encodedOpcode << 24) |
+                 (stmt->instr->u.format8.reg1 << 16) |
+                 (stmt->instr->u.format8.reg2 << 8) |
+                 (encodedAddr));
+      break;
+    case 10:
+      outputWord((encodedOpcode << 24) |
+                 (stmt->instr->u.format10.reg1 << 16) |
+                 (stmt->instr->u.format10.reg2 << 8) |
+                 (stmt->instr->u.format10.reg3));
       break;
     default:
       bug("unexpected format (%d) seen in stmt_encode", stmt->instr->format);
@@ -198,9 +196,9 @@ static void encode_stmt( stmt_node *stmt )
 
 }
 
-void encode_stmts( stmt_node *stmts )
+void encode_stmt_list( stmt_node *stmt_list )
 {
-  stmt_node *walk = stmts;
+  stmt_node *walk = stmt_list;
   while (walk)
   {
     encode_stmt( walk );
@@ -208,12 +206,27 @@ void encode_stmts( stmt_node *stmts )
   }
 }
 
+void encode_handler( handler_node *handler )
+{
+  outputWord( handler->start_addr );
+  outputWord( handler->end_addr );
+  outputWord( handler->handle_addr );
+}
+
+void encode_handler_list( handler_node *handler_list )
+{
+  handler_node *walk = handler_list;
+  while (walk)
+  {
+    encode_handler(walk);
+    walk = walk->link;
+  }
+}
+
 void encode_func( func_node *func )
 {
   char *name = func->name;
-  while( *name )
-    putc( *name++, fp );
-  putc( 0x00, fp );
+  while( putc( *name++, fp ) );
   /* annotations */
   outputWord( 0 );
   outputWord( 2 );
@@ -221,9 +234,10 @@ void encode_func( func_node *func )
   outputWord( 0 );
   /* contents length */
   outputWord( func->length*4 );
-  encode_stmts( func->stmts );
+  encode_stmt_list( func->stmt_list );
   /* number exception handlers */
-  outputWord( 0 );
+  outputWord( func->num_handlers );
+  encode_handler_list( func->handler_list );
   /* number outsymbol references */
   outputWord( 0 );
   /* number native functions references */
@@ -254,8 +268,8 @@ func_node *process_func_list( func_node *node, func_node *list )
     return NULL;
 }
 
-func_node *process_func( char *id1, char *id2, handler_node *handlers, 
-                   stmt_node *stmts )
+func_node *process_func( char *id1, char *id2, handler_node *handler_list, 
+                   stmt_node *stmt_list )
 {
   fprintf( stderr, "processing func!\n");
   if ( strcmp( id1, id2) )
@@ -266,7 +280,7 @@ func_node *process_func( char *id1, char *id2, handler_node *handlers,
   switch ( currentPass )
   {
     case 1:
-      return func_pass1( id1, handlers, stmts );
+      return func_pass1( id1, handler_list, stmt_list );
       break;
     case 2:
       return NULL;
@@ -308,44 +322,6 @@ handler_node *process_handler_list( handler_node *node, handler_node *list )
     return NULL;
 }
 
-// this is the "guts" of the assembler and is called for each line
-// of the input that contains a label, instruction or directive
-//
-// note that there may be both a label and an instruction or directive
-// present on a line
-//
-// note that the assembler directives "export" and "import" have structure
-// identical to instructions with format 2, so that format is used for them
-//
-// for the directives "word" and "alloc" a special format, format 9, is used
-//
-// see defs.h for the details on how each instruction format is represented
-// in the INSTR struct.
-//
-void assemble(char *label, INSTR instr)
-{
-#if DEBUG
-  fprintf(stderr, "assemble called on pass %d:\n", currentPass);
-  if (label)
-  {
-    fprintf(stderr, "  label is %s\n", label);
-  }
-  dumpInstrStruct(instr);
-#endif
-  if (currentPass == 1)
-  {
-    assemblePass1(label, instr);
-  }
-  else if (currentPass == 2)
-  {
-    assemblePass2(label, instr);
-  }
-  else
-  {
-    bug("unexpected current pass number (%d) in assemble\n", currentPass);
-  }
-}
-
 // this is called between passes and provides the assembler the file
 // pointer to use for outputing the object file
 //
@@ -357,9 +333,9 @@ int betweenPasses(FILE *outf)
   fprintf(stderr, "betweenPasses called\n");
   dumpSymbolTable();
   dump_funcs( func_list );
-  //dump_handlers( handler_list );
+  //dump_handler_list( handler_list );
 #endif
-  //verify_handlers( handler_list );
+  //verify_handler_list( handler_list );
 
 #if PRINT_DEFINED_LABELS
   printDefinedLabels();
@@ -388,7 +364,6 @@ int betweenPasses(FILE *outf)
   if (!errorCount)
   {
     output_header();
-    //outputHeaders();
     //outputInsymbols();
     //outputOutsymbols();
   }
@@ -418,21 +393,36 @@ unsigned int stmt_list_length( stmt_node *stmt_list )
   return length;
 }
 
+unsigned int handler_list_length( handler_node *handler_list )
+{
+  unsigned int length = 0;
+  handler_node *walk = handler_list;
+
+  while (walk)
+  {
+    length += 1;
+    walk = walk->link;
+  }
+
+  return length;
+}
+
 /*
  * func_pass1
  *
  * processing a function declaration on pass 1
  */
-static func_node *func_pass1( char *id, handler_node *handlers, 
-                              stmt_node *stmts )
+static func_node *func_pass1( char *id, handler_node *handler_list, 
+                              stmt_node *stmt_list )
 {
   func_node *new = calloc( 1, sizeof *new );
   if ( !new )
     fatal("malloc failed in func_pass1");
   new->name = id;
-  new->handlers = handlers;
-  new->stmts = stmts;
-  new->length = stmt_list_length( stmts );
+  new->handler_list = handler_list;
+  new->stmt_list = stmt_list;
+  new->length = stmt_list_length( stmt_list );
+  new->num_handlers = handler_list_length( handler_list );
   num_blocks += 1;
   return new;
 }
@@ -448,9 +438,9 @@ static void func_pass2( char *id )
 }
 */
 
-static void dump_stmts( stmt_node *stmts )
+static void dump_stmt_list( stmt_node *stmt_list )
 {
-  stmt_node *walk = stmts;
+  stmt_node *walk = stmt_list;
   while (walk)
   {
     if( walk->instr->format != 0 )
@@ -473,8 +463,8 @@ static void dump_funcs( func_node *root )
   while ( walk )
   {
     fprintf( stderr, "%s\n", walk->name );
-    dump_handlers( walk->handlers );
-    dump_stmts( walk->stmts );
+    dump_handler_list( walk->handler_list );
+    dump_stmt_list( walk->stmt_list );
     walk = walk->link;
   }
   fprintf(stderr, "====================================================\n");
@@ -498,7 +488,7 @@ static handler_node *handler_pass1( char *handle, char *start, char *end )
   new->start_lbl = start;
   new->end_lbl = end;
   //handler_push( &handler_list, new );
-  num_handlers += 1;
+  //num_handlers += 1;
   return new;
 }
 
@@ -513,11 +503,11 @@ static handler_node *handler_pass2( char *handle, char *start, char *end )
 }
 
 /*
- * dump_handlers
+ * dump_handler_list
  *
  * Print out information about all declared exception handlers.
  */
-static void dump_handlers( handler_node *root )
+static void dump_handler_list( handler_node *root )
 {
   handler_node *walk = root;
   fprintf(stderr, "handler list dump===================================\n");
@@ -674,10 +664,10 @@ static stmt_node *assemble_pass1( char *label, INSTR *instr )
         symtabInstallReference(instr->u.format5.addr, currentLength - 1, 5);
         break;
       case 7:
-        if (!fitIn16(instr->u.format7.offset))
+        if (!fit_in_8(instr->u.format7.const8))
         {
-          error("offset %d will not fit in 16 bits",
-            instr->u.format7.offset);
+          error("constant %d will not fit in 8 bits",
+                instr->u.format7.const8);
           errorCount += 1;
         }
         break;
@@ -687,220 +677,6 @@ static stmt_node *assemble_pass1( char *label, INSTR *instr )
     }
   }
   return new;
-}
-
-static void assemblePass1(char *label, INSTR instr)
-{
-  // first handle the label, if one
-  if (label && !symtabInstallDefinition(label, currentLength))
-  {
-    error("label %s already defined", label);
-    errorCount += 1;
-  }
-
-  // if there is not an instruction then we are done
-  if (instr.format == 0)
-  {
-    return;
-  }
-
-  // sanity check for instruction format
-  if (instr.format > 9)
-  {
-    bug("bogus format (%d) seen in assemblePass1", instr.format);
-  }
-
-  // if there is an instruction, go ahead and count its word
-  //   so currentLength will be equal to what PC will be when it executes
-  currentLength += 1;
-
-  // verify the opcode
-  int format = verifyOpcode(instr.opcode);
-  if (format == 0)
-  {
-    error("unknown opcode");
-    errorCount += 1;
-    return;
-  }
-
-  // does the opcode match the structure of the line?
-  if (format != instr.format)
-  {
-    error("opcode does not match the given operands");
-    errorCount += 1;
-    return;
-  }
-
-  // first handle the directives which have the special encoding of 0xFF
-  if(getOpcodeEncoding(instr.opcode) == 0xFF)
-  {
-    if (!strcmp(instr.opcode, "alloc"))
-    {
-      // need to verify its constant is greater than zero
-      if (instr.u.format9.constant <= 0)
-      {
-        error("constant must be greater than zero");
-        instr.u.format9.constant = 0; // squash other errors
-        errorCount += 1;
-      }
-
-      // need to add to currentLength, remember one has already been added
-      currentLength += (instr.u.format9.constant - 1);
-    }
-    else if (!strcmp(instr.opcode, "word"))
-    {
-      // actually nothing to do here!
-      //   constant has already been verified to fit in 32 bits
-    }
-    else if (!strcmp(instr.opcode, "export"))
-    {
-      // this directive takes no space
-      currentLength -= 1;
-      symtabInstallExport(instr.u.format2.addr);
-    }
-    else if (!strcmp(instr.opcode, "import"))
-    {
-      // this directive takes no space
-      currentLength -= 1;
-      symtabInstallImport(instr.u.format2.addr);
-    }
-    else
-    {
-      bug("bogus encoding 0xFF for opcode %s", instr.opcode);
-    }
-  }
-  else
-  {
-    // now process the instructions
-    // stash the references to symbols for later processing
-    // and check the constants and offsets to see if they will fit 
-    switch (instr.format)
-    {
-      case 2:
-        symtabInstallReference(instr.u.format2.addr, currentLength - 1, 2);
-        break;
-      case 4:
-        if (!fitIn20(instr.u.format4.constant))
-        {
-          error("constant %d will not fit in 20 bits",
-            instr.u.format4.constant);
-          errorCount += 1;
-        }
-        break;
-      case 5:
-        symtabInstallReference(instr.u.format5.addr, currentLength - 1, 5);
-        break;
-      case 7:
-        if (!fitIn16(instr.u.format7.offset))
-        {
-          error("offset %d will not fit in 16 bits",
-            instr.u.format7.offset);
-          errorCount += 1;
-        }
-        break;
-      case 8:
-        symtabInstallReference(instr.u.format8.addr, currentLength - 1, 8);
-        break;
-    }
-  }
-}
-
-// assemblePass2
-//
-// process a line during pass 2
-//
-// label definitions and import/export directives can be ignored
-//
-static void assemblePass2(char *label, INSTR instr)
-{
-  // if there is not an instruction then we are done
-  if (instr.format == 0)
-  {
-    return;
-  }
-
-  // also can skip the import and export directives
-  if (!strcmp(instr.opcode, "export") || !strcmp(instr.opcode, "import"))
-  {
-    return;
-  }
-
-  // now handle the remaining directives
-  if (!strcmp(instr.opcode, "alloc"))
-  {
-    // need to add to currentLength
-    int len = (instr.u.format9.constant);
-    currentLength += len;
-    int i;
-    for (i = 0; i < len; i += 1)
-    {
-      outputWord(0);
-    }
-    return;
-  }
-  if (!strcmp(instr.opcode, "word"))
-  {
-    currentLength += 1;
-    outputWord(instr.u.format9.constant);
-    return;
-  }
-
-  // now handle the instructions
-  // go ahead and count the word to be encoded
-  //   so currentLength will be equal to what PC will be when it executes
-  currentLength += 1;
-
-  // get the opcode encoding
-  char encodedOpcode = getOpcodeEncoding(instr.opcode);
-
-  // now handle the different instruction formats
-  int encodedAddr;
-  switch (instr.format)
-  {
-    case 1:
-      outputWord(encodedOpcode);
-      break;
-    case 2:
-      encodedAddr = encodeAddr20(instr.u.format2.addr, currentLength);
-      outputWord((encodedAddr << 12) |
-                 (encodedOpcode));
-      break;
-    case 3:
-      outputWord((instr.u.format3.reg << 8) |
-                 (encodedOpcode));
-      break;
-    case 4:
-      outputWord((instr.u.format4.constant << 12) |
-                 (instr.u.format4.reg << 8) |
-                 (encodedOpcode));
-      break;
-    case 5:
-      encodedAddr = encodeAddr20(instr.u.format5.addr, currentLength);
-      outputWord((encodedAddr << 12) |
-                 (instr.u.format5.reg << 8) |
-                 (encodedOpcode));
-      break;
-    case 6:
-      outputWord((instr.u.format6.reg2 << 12) |
-                 (instr.u.format6.reg1 << 8) |
-                 (encodedOpcode));
-      break;
-    case 7:
-      outputWord((instr.u.format7.offset << 16) |
-                 (instr.u.format7.reg2 << 12) |
-                 (instr.u.format7.reg1 << 8) |
-                 (encodedOpcode));
-      break;
-    case 8:
-      encodedAddr = encodeAddr16(instr.u.format8.addr, currentLength);
-      outputWord((encodedAddr << 16) |
-                 (instr.u.format8.reg2 << 12) |
-                 (instr.u.format8.reg1 << 8) |
-                 (encodedOpcode));
-      break;
-    default:
-      bug("unexpected format (%d) seen in assemblePass2", instr.format);
-  }
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -924,32 +700,6 @@ static void outputWord(int value)
   putc((value >> 8) & 0xFF, fp);
   putc(value & 0xFF, fp);
 }
-
-// outputSymbol
-//
-// puts a symbol out, filling four words
-//
-// this is only called if there are no errors in input file, so we
-// know that the symbol is 16 or fewer characters
-//
-/*
-static void outputSymbol(char *id)
-{
-  int len = strlen(id);
-  int i;
-  // process the bytes of the id
-  for (i = 0; i < len; i += 1)
-  {
-    putc(id[i], fp);
-  }
-  // fill out with 0 bytes if necessary
-  while (i < 16)
-  {
-    putc(0, fp);
-    i += 1;
-  }
-}
-*/
 
 //////////////////////////////////////////////////////////////////////////
 // process opcodes
@@ -1185,8 +935,8 @@ static void dumpInstrStruct(INSTR instr)
           instr.u.format6.reg2);
         break;
       case 7:
-        fprintf(stderr, " r%d,%d(r%d)\n", instr.u.format7.reg1,
-          instr.u.format7.offset, instr.u.format7.reg2);
+        fprintf(stderr, " r%d,r%d,%d\n", instr.u.format7.reg1,
+          instr.u.format7.reg2, instr.u.format7.const8);
         break;
       case 8:
         fprintf(stderr, " r%d,r%d,%s\n", instr.u.format8.reg1,
@@ -1665,96 +1415,6 @@ output_header( void )
   outputWord( num_blocks );
 }
 
-//  outputHheaders
-//
-//  output the insymbol section length, the outsymbol section length and
-//  the object code section length
-//
-/*
-static void outputHeaders(void)
-{
-  //   iterate over the symbols to count how many insymbol and outsymbol
-  //     records there will be
-  void *iter = symtabInitIterator();
-  SYMTAB_REC *p = symtabNext(iter);
-  int insymbolCount = 0;
-  int outsymbolCount = 0;
-  while (p)
-  {
-    if (p->isExported)
-    {
-      insymbolCount += 1;
-    }
-    if (p->isImported)
-    {
-      // iterate over references
-      void *iter2 = referenceInitIterator(p);
-      unsigned int format;
-      while (referenceNext(iter2, &format) != -1)
-      {
-        outsymbolCount += 1;
-      }
-    }
-    p = symtabNext(iter);
-  }
-  // okay output the headers
-  outputWord(insymbolCount * 5);
-  outputWord(outsymbolCount * 5);
-  outputWord(currentLength);
-}
-*/
-
-//  outputInsymbols
-//
-//  iterate over the symbols and output the exported symbols
-//
-/*
-static void outputInsymbols(void)
-{
-  void *iter = symtabInitIterator();
-  SYMTAB_REC *p = symtabNext(iter);
-  while (p)
-  {
-    if (p->isExported)
-    {
-      outputSymbol(p->id);
-      outputWord(p->addr);
-    }
-    p = symtabNext(iter);
-  }
-}
-*/
-
-//  outputOutsymbols
-//
-//  iterate over the symbols and output the imported symbols
-//
-//  an entry must be output for each reference to the symbol
-//
-/*
-static void outputOutsymbols(void)
-{
-  void *iter = symtabInitIterator();
-  SYMTAB_REC *p = symtabNext(iter);
-  while (p)
-  {
-    if (p->isImported)
-    {
-      void *iter2 = referenceInitIterator(p);
-      unsigned int format;
-      unsigned int addr = referenceNext(iter2, &format);
-      while (addr != -1)
-      {
-        outputSymbol(p->id);
-        outputWord(addr);
-        addr = referenceNext(iter2, &format);
-      }
-    }
-    p = symtabNext(iter);
-  }
-}
-*/
-
 #if DEBUG
 // dumpSymbolTable
 //
@@ -1842,13 +1502,13 @@ static int populate_handler_addrs( handler_node *handler )
 }
 
 /*
- * verify_handlers
+ * verify_handler_list
  *
  * Takes the head of a list of handlers and verifies each one.
  * This involves verifying the symbols are defined and filling
  * in their address in the handler structs.
  */
-int verify_handlers( handler_node *root )
+int verify_handler_list( handler_node *root )
 {
   int ret = 0;
   handler_node *walk = root;
@@ -1931,6 +1591,30 @@ static int encodeAddr16(char* id, unsigned int pc)
 
   // return the PC-relative address
   return ret;
+}
+
+/*
+ * fit_in_8
+ *
+ * check if a signed value will fit in 8 bits
+ */
+static unsigned int fit_in_8(int value)
+{
+  if ((value >> 7) & 0x01)
+  {
+    if (((value >> 8) & 0xFFFF) != 0xFFFF)
+    {
+      return 0;
+    }
+  }
+  else
+  {
+    if (((value >> 8) & 0xFFFF) != 0)
+    {
+      return 0;
+    }
+  }
+  return 1;
 }
 
 // fitIn16

@@ -69,7 +69,7 @@ program
           if ( $1 )
           {
             func_list = $1;
-            verify_handlers( func_list->handlers );
+            verify_handler_list( func_list->handler_list );
           }
         }
         ;
@@ -209,14 +209,14 @@ instruction
             $$->u.format6.reg2 = $4;
           }
         |
-          opcode REG COMMA INT_CONST LPAREN REG RPAREN
+          opcode REG COMMA REG COMMA INT_CONST
           {
             $$ = calloc( 1, sizeof(INSTR) );
             $$->format = 7;
             $$->opcode = $1;
             $$->u.format7.reg1 = $2;
-            $$->u.format7.offset = $4;
-            $$->u.format7.reg2 = $6;
+            $$->u.format7.reg2 = $4;
+            $$->u.format7.const8 = $6;
           }
         |
           opcode REG COMMA REG COMMA ID
@@ -235,6 +235,16 @@ instruction
             $$->format = 9;
             $$->opcode = $1;
             $$->u.format9.constant = $2;
+          }
+        |
+          opcode REG COMMA REG COMMA REG
+          {
+            $$ = calloc( 1, sizeof(INSTR) );
+            $$->format = 10;
+            $$->opcode = $1;
+            $$->u.format10.reg1 = $2;
+            $$->u.format10.reg2 = $4;
+            $$->u.format10.reg3 = $6;
           }
         ;
 
