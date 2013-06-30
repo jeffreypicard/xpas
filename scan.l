@@ -109,7 +109,7 @@ other                     .
 
 {newline}                 {
                             yylineno++;
-                            return token(EOL);
+                            //return token(EOL);
                           }
 
 {comment}                 {

@@ -3,8 +3,12 @@
 #
 # Test program for parsing xpas assembly files.
 #
+
 func main
+
+# exception handlers
 exception handle, start, stop
+
 start:
   ldimm   r3, 42
   cvtld   r6, r3
@@ -16,6 +20,7 @@ stop:
 handle:
   ret r11
 end main
+
 func lol
   ldimm r10, 42
   cvtld r10, r10

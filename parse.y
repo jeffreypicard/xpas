@@ -86,9 +86,9 @@ func_list
         ;
 
 func
-        : FUNC ID EOL handler_list stmt_list END ID EOL
+        : FUNC ID handler_list stmt_list END ID 
           {
-            $$ = process_func( $2, $7, $4, $5 );
+            $$ = process_func( $2, $6, $3, $4 );
           }
         ;
 
@@ -104,7 +104,7 @@ handler_list
         ;
 
 handler
-        : EXCEPTION ID COMMA ID COMMA ID EOL
+        : EXCEPTION ID COMMA ID COMMA ID
           {
             $$ = process_handler( $2, $4, $6 );
           }
@@ -122,17 +122,17 @@ stmt_list
         ;
 
 stmt
-        : label instruction EOL
+        : label instruction
           {
             $$ = process_stmt( $1, $2 );
             // assemble($1, $2);
           }
-        | instruction EOL
+        | instruction
           {
             $$ = process_stmt( NULL, $1 );
             // assemble(NULL, $1);
           }
-        | label EOL
+        | label
           {
              //INSTR nullInstr;
              //nullInstr.format = 0;
@@ -145,7 +145,7 @@ stmt
           {
              $$ = NULL;// no action
           }
-        | error EOL
+        | error
           {
              $$ = NULL;// error recovery - sync with end-of-line
           }
