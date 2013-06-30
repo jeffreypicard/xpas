@@ -97,12 +97,39 @@ void initAssemble(void)
 #endif
 }
 
+/*
+ * get_blk_id
+ *
+ * Takes a block name as string and return the block id.
+ * FIXME: This should not rely on the global variable, preferably.
+ */
+static unsigned int get_blk_id( const char *blk_name )
+{
+  unsigned int id = 0;
+  func_node *walk = func_list;
+  while (walk)
+  {
+    if (!strcmp(blk_name, walk->name))
+      return id;
+    id += 1; 
+    walk = walk->link;
+  }
+  return 0;
+}
+
 static void encode_stmt( stmt_node *stmt )
 {
   // if there is not an instruction then we are done
   if (stmt->instr->format == 0)
   {
     return;
+  }
+
+  if (!strcmp(stmt->instr->opcode, "ldblkid") && stmt->instr->format == 5 )
+  {
+    stmt->instr->format = 4;
+    /* This is a wicked hack :):):) */
+    stmt->instr->u.format4.constant = get_blk_id( stmt->instr->u.format5.addr );
   }
 
   // also can skip the import and export directives
@@ -191,7 +218,7 @@ static void encode_stmt( stmt_node *stmt )
                  (stmt->instr->u.format10.reg3));
       break;
     default:
-      bug("unexpected format (%d) seen in stmt_encode", stmt->instr->format);
+      bug("unexpected format (%d) seen in encode_stmt", stmt->instr->format);
   }
 
 }
@@ -418,6 +445,12 @@ static func_node *func_pass1( char *id, handler_node *handler_list,
   func_node *new = calloc( 1, sizeof *new );
   if ( !new )
     fatal("malloc failed in func_pass1");
+  /* FIXME: should functions and labels be separate? */
+  if (!symtabInstallDefinition(id, currentLength))
+  {
+    error("label %s already defined", id);
+    errorCount += 1;
+  }
   new->name = id;
   new->handler_list = handler_list;
   new->stmt_list = stmt_list;
@@ -430,7 +463,7 @@ static func_node *func_pass1( char *id, handler_node *handler_list,
 /*
  * func_pass2
  *
- * processing a function declaration on pass 1
+ * processing a function declaration on pass 2
  */
 /*
 static void func_pass2( char *id )
@@ -787,7 +820,7 @@ opcodes[] =
 {"stf",                   0, 0x19},
 {"std",                   0, 0x1A},
 {"std",                   0, 0x1B},
-{"ldblkid",               0, 0x1C},
+{"ldblkid",               5, 0x1C},
 {"ldnative",              0, 0x1D},
 {"addl",                  0, 0x20},
 {"addl",                  0, 0x21},
@@ -840,7 +873,7 @@ opcodes[] =
 {"release_blk",           0, 0x63},
 {"set_volatile",          0, 0x64},
 {"get_owner",             0, 0x65},
-{"call",                  0, 0x72},
+{"call",                  6, 0x72},
 {"calln",                 0, 0x73},
 {"ret",                   3, 0x74},
 {"throw",                 0, 0x80},
