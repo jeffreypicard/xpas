@@ -84,7 +84,7 @@ static handler_node *handler_pass2( char *, char *, char * );
 static void dump_funcs( func_node * );
 static void dump_handler_list( handler_node * );
 
-int verify_handler_list( handler_node * );
+static void verify_handler_list( handler_node * );
 //////////////////////////////////////////////////////////////////////////
 // public entry points
 
@@ -183,7 +183,7 @@ static void encode_stmt( stmt_node *stmt )
                  (encodedOpcode << 24));
       break;
     case 4:
-      outputWord((stmt->instr->u.format4.constant) |
+      outputWord((stmt->instr->u.format4.constant & 0xFFFF) |
                  (stmt->instr->u.format4.reg << 16) |
                  (encodedOpcode << 24));
       break;
@@ -235,9 +235,9 @@ void encode_stmt_list( stmt_node *stmt_list )
 
 void encode_handler( handler_node *handler )
 {
-  outputWord( handler->start_addr );
-  outputWord( handler->end_addr );
-  outputWord( handler->handle_addr );
+  outputWord( handler->start_addr*4 );
+  outputWord( handler->end_addr*4 );
+  outputWord( handler->handle_addr*4 );
 }
 
 void encode_handler_list( handler_node *handler_list )
@@ -278,7 +278,6 @@ void encode_funcs( func_node *func_list )
   func_node *walk = func_list;
   while (walk)
   {
-    fprintf( stderr, "encoding func!\n");
     encode_func( walk );
     walk = walk->link;
   }
@@ -298,7 +297,7 @@ func_node *process_func_list( func_node *node, func_node *list )
 func_node *process_func( char *id1, char *id2, handler_node *handler_list, 
                    stmt_node *stmt_list )
 {
-  fprintf( stderr, "processing func!\n");
+  currentLength = 0; 
   if ( strcmp( id1, id2) )
   {
     error("start and end ids for functions must match.");
@@ -322,7 +321,6 @@ func_node *process_func( char *id1, char *id2, handler_node *handler_list,
 
 handler_node *process_handler( char *handle, char *start, char *end )
 {
-  fprintf( stderr, "processing handler!\n");
   switch ( currentPass )
   {
     case 1:
@@ -558,7 +556,6 @@ static stmt_node *assemble_pass1( char *, INSTR * );
 
 stmt_node *process_stmt( char *label, INSTR *instr )
 {
-  fprintf( stderr, "processing handler!\n");
   switch ( currentPass )
   {
     case 1:
@@ -820,7 +817,7 @@ opcodes[] =
 {"stf",                   0, 0x19},
 {"std",                   0, 0x1A},
 {"std",                   0, 0x1B},
-{"ldblkid",               5, 0x1C},
+{"ldblkid",               5, 0x1C}, /* pseudo instruction */
 {"ldnative",              0, 0x1D},
 {"addl",                  0, 0x20},
 {"addl",                  0, 0x21},
@@ -828,16 +825,16 @@ opcodes[] =
 {"subl",                  0, 0x23},
 {"mull",                  0, 0x24},
 {"mull",                  0, 0x25},
-{"divl",                  0, 0x26},
-{"divl",                  0, 0x27},
+{"divl",                 10, 0x26},
+{"divl",                  7, 0x27},
 {"reml",                  0, 0x28},
 {"reml",                  0, 0x29},
 {"negl",                  0, 0x2A},
 {"addd",                  0, 0x2B},
 {"subd",                  0, 0x2C},
 {"muld",                  0, 0x2D},
-{"divd",                  0, 0x2E},
-{"negd",                  0, 0x2F},
+{"divd",                 10, 0x2E},
+{"negd",                  6, 0x2F},
 {"cvtld",                 6, 0x30},
 {"cvtdl",                 0, 0x31},
 {"lshift",                0, 0x32},
@@ -874,7 +871,7 @@ opcodes[] =
 {"set_volatile",          0, 0x64},
 {"get_owner",             0, 0x65},
 {"call",                  6, 0x72},
-{"calln",                 0, 0x73},
+{"calln",                 7, 0x73},
 {"ret",                   3, 0x74},
 {"throw",                 0, 0x80},
 {"retrieve",              0, 0x81},
@@ -977,6 +974,11 @@ static void dumpInstrStruct(INSTR instr)
         break;
       case 9:
         fprintf(stderr, " %d\n", instr.u.format9.constant);
+        break;
+      case 10:
+        fprintf(stderr, " r%d,r%d,r%d\n", instr.u.format10.reg1,
+                                          instr.u.format10.reg2,
+                                          instr.u.format10.reg3 );
         break;
       default:
         bug("unexpected instruction format (%d) in dumpInstrStruct",
@@ -1507,31 +1509,26 @@ static int get_symbol_addr( const char *symbol )
  * If any labels are not defined the address if set to -1.
  * Returns 0 on success, -1 if any labels are not defined.
  */
-static int populate_handler_addrs( handler_node *handler )
+static void populate_handler_addrs( handler_node *handler )
 {
-  int ret = 0;
   if ( (handler->handle_addr = get_symbol_addr( handler->handle_lbl )) < 0 )
   {
     error("handle symbol '%s' in handler declaration not defined", 
           handler->handle_lbl );
     errorCount += 1;
-    ret = -1;
   }
   if ( (handler->start_addr = get_symbol_addr( handler->start_lbl )) < 0 )
   {
     error("start symbol '%s' in handler declaration not defined", 
           handler->start_lbl );
     errorCount += 1;
-    ret = -1;
   }
   if ( (handler->end_addr = get_symbol_addr( handler->end_lbl )) < 0 )
   {
     error("end symbol '%s' in handler declaration not defined", 
           handler->end_lbl );
     errorCount += 1;
-    ret = -1;
   }
-  return ret;
 }
 
 /*
@@ -1541,17 +1538,31 @@ static int populate_handler_addrs( handler_node *handler )
  * This involves verifying the symbols are defined and filling
  * in their address in the handler structs.
  */
-int verify_handler_list( handler_node *root )
+static void verify_handler_list( handler_node *root )
 {
-  int ret = 0;
   handler_node *walk = root;
   while( walk )
   {
-    if ( (populate_handler_addrs(walk)) < 0 )
-      ret = -1;
+    populate_handler_addrs(walk);
     walk = walk->link;
   }
-  return ret;
+}
+
+/*
+ * verify_handlers
+ *
+ * Takes a list of functions and for each function
+ * verifies the labels in the exception handler
+ * declarations exist and populates their addresses.
+ */
+void verify_handlers( func_node *root )
+{
+  func_node *walk = root;
+  while (walk)
+  {
+    verify_handler_list( walk->handler_list );
+    walk = walk->link;
+  }
 }
 
 // encodeAddr20

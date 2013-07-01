@@ -12,6 +12,8 @@
 
 extern unsigned int parseErrorCount;
 
+int yydebug=1;
+
 // scanner produced by flex
 int yylex(void);
 
@@ -69,7 +71,7 @@ program
           if ( $1 )
           {
             func_list = $1;
-            verify_handler_list( func_list->handler_list );
+            verify_handlers( func_list );
           }
         }
         ;
@@ -122,12 +124,12 @@ stmt_list
         ;
 
 stmt
-        : label instruction
+        /*: label instruction
           {
             $$ = process_stmt( $1, $2 );
             // assemble($1, $2);
-          }
-        | instruction
+          }*/
+        : instruction
           {
             $$ = process_stmt( NULL, $1 );
             // assemble(NULL, $1);
@@ -140,10 +142,6 @@ stmt
              INSTR *null_instr = calloc( 1, sizeof *null_instr );
              null_instr->format = 0;
              $$ = process_stmt( $1, null_instr );
-          }
-        | EOL
-          {
-             $$ = NULL;// no action
           }
         | error
           {
@@ -159,13 +157,13 @@ label
         ;
 
 instruction
-        : opcode
+        /*: opcode
           {
             $$ = calloc( 1, sizeof(INSTR) );
             $$->format = 1;
             $$->opcode = $1;
-          }
-        |
+          }*/
+        :
           opcode ID
           {
             $$ = calloc( 1, sizeof(INSTR) );

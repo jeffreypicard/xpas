@@ -57,7 +57,7 @@ whitespace                [ \t]
 
 newline                   [\n]
 
-register                  (([r][0-9])|([r][1][0-5])|(sp)|(fp)|(pc))
+register                  (([r][0-9])|([r][0-9][0-9])|([r][1][0-9][0-9])|([r][2][0-4][0-9])|(r[2][5][0-5])|(sp)|(fp)|(pc))
 
 id                        ({letter}({letter}|{digit})*)
 
@@ -162,6 +162,8 @@ unsigned int getRegNum(char *s)
     return 15;
   }
 
+  s = s+1;
+  return atoi(s);
   // now handle the remaining two character cases (r0, ..., r9)
   if (strlen(s) == 2)
   {
