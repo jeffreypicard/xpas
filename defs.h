@@ -89,12 +89,20 @@ struct handler_node {
   struct handler_node *link;
 } typedef handler_node;
 
+struct native_ref_node {
+  char          *name;
+  unsigned int  addr;
+  struct native_ref_node *link;
+} typedef native_ref_node;
+
 struct func_node {
   char  *name;
   unsigned int length;
   int   addr;
   handler_node *handler_list;
   unsigned int num_handlers;
+  native_ref_node *native_ref_list;
+  unsigned int num_native_refs;
   stmt_node *stmt_list;
   struct func_node *link;
 } typedef func_node;
@@ -102,6 +110,8 @@ struct func_node {
 void encode_funcs( func_node * );
 
 extern func_node *func_list;
+/* FIXME: Native refs should be handled in a cleaner way */
+extern native_ref_node *native_ref_list;
 extern func_node *process_func( char *, char *, handler_node *, stmt_node * );
 extern func_node *process_func_list( func_node *, func_node * );
 extern handler_node *process_handler( char *, char *, char *);

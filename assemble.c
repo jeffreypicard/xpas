@@ -24,6 +24,9 @@
 /* List of all declared functions */
 func_node *func_list = NULL;
 
+/* FIXME: Hack for native references */
+native_ref_node *native_ref_list = NULL;
+
 // track which pass we are on
 static int currentPass = 1;
 
@@ -83,6 +86,7 @@ static handler_node *handler_pass1( char *, char *, char * );
 static handler_node *handler_pass2( char *, char *, char * );
 static void dump_funcs( func_node * );
 static void dump_handler_list( handler_node * );
+static void dump_native_ref_list( native_ref_node * );
 
 static void verify_handler_list( handler_node * );
 //////////////////////////////////////////////////////////////////////////
@@ -130,6 +134,18 @@ static void encode_stmt( stmt_node *stmt )
     stmt->instr->format = 4;
     /* This is a wicked hack :):):) */
     stmt->instr->u.format4.constant = get_blk_id( stmt->instr->u.format5.addr );
+  } 
+
+  if ( !strcmp(stmt->instr->opcode, "ldnative") )
+  {
+    char encodedOpcode = getOpcodeEncoding(stmt->instr->opcode);
+    /* Output the opcode, register and ZERO. This native reference is listed
+     * in the header of the object file and will have the correct const16
+     * filled in by the VM. */
+    outputWord((encodedOpcode << 24) |
+               (stmt->instr->u.format5.reg << 16) |
+               0x0000);
+    return;
   }
 
   // also can skip the import and export directives
@@ -250,6 +266,24 @@ void encode_handler_list( handler_node *handler_list )
   }
 }
 
+void encode_native_ref( native_ref_node *ref )
+{
+  char *s = ref->name;
+  while( putc( *s++, fp ) );
+  /* *4 to get to the right word and +2 to get to the right byte */
+  outputWord( ref->addr*4 + 2 );
+}
+
+void encode_native_ref_list( native_ref_node *native_ref_list )
+{
+  native_ref_node *walk = native_ref_list;
+  while (walk)
+  {
+    encode_native_ref(walk);
+    walk = walk->link;
+  }
+}
+
 void encode_func( func_node *func )
 {
   char *name = func->name;
@@ -268,7 +302,8 @@ void encode_func( func_node *func )
   /* number outsymbol references */
   outputWord( 0 );
   /* number native functions references */
-  outputWord( 0 );
+  outputWord( func->num_native_refs );
+  encode_native_ref_list( func->native_ref_list );
   /* auxiliary data length */
   outputWord( 0 );
 }
@@ -345,6 +380,18 @@ handler_node *process_handler_list( handler_node *node, handler_node *list )
   }
   else
     return NULL;
+}
+
+void add_native_ref( unsigned int addr, char *name, native_ref_node **root )
+{
+  fprintf( stderr, "ADDING NATIVE REF\n");
+  native_ref_node *ref = calloc(1, sizeof *ref );
+  if (!ref)
+    fatal("malloc failed in add_native_ref.\n");
+  ref->addr = addr;
+  ref->name = name;
+  ref->link = *root;
+  *root = ref;
 }
 
 // this is called between passes and provides the assembler the file
@@ -432,6 +479,20 @@ unsigned int handler_list_length( handler_node *handler_list )
   return length;
 }
 
+unsigned int native_ref_list_length( native_ref_node *native_ref_list )
+{
+  unsigned int length = 0;
+  native_ref_node *walk = native_ref_list;
+
+  while (walk)
+  {
+    length += 1;
+    walk = walk->link;
+  }
+
+  return length;
+}
+
 /*
  * func_pass1
  *
@@ -495,6 +556,7 @@ static void dump_funcs( func_node *root )
   {
     fprintf( stderr, "%s\n", walk->name );
     dump_handler_list( walk->handler_list );
+    dump_native_ref_list( walk->native_ref_list );
     dump_stmt_list( walk->stmt_list );
     walk = walk->link;
   }
@@ -552,6 +614,24 @@ static void dump_handler_list( handler_node *root )
   fprintf(stderr, "====================================================\n");
 }
 
+/*
+ * dump_native_ref_list
+ *
+ * Print out information about native references for the function.
+ */
+static void dump_native_ref_list( native_ref_node *root )
+{
+  native_ref_node *walk = root;
+  fprintf(stderr, "native ref list dump================================\n");
+  while ( walk )
+  {
+    fprintf( stderr, "%s, %d\n", walk->name
+                               , walk->addr );
+    walk = walk->link;
+  }
+  fprintf(stderr, "====================================================\n");
+}
+
 static stmt_node *assemble_pass1( char *, INSTR * );
 
 stmt_node *process_stmt( char *label, INSTR *instr )
@@ -585,7 +665,7 @@ stmt_node *process_stmt_list( stmt_node *node, stmt_node *list )
 //////////////////////////////////////////////////////////////////////////
 // the two main assembly routines, one for each pass
 
-// assemblePass1
+// assemble_pass1
 //
 // process a line during pass 1
 //
@@ -691,6 +771,11 @@ static stmt_node *assemble_pass1( char *label, INSTR *instr )
         }
         break;
       case 5:
+        if ( !strcmp(instr->opcode, "ldnative") ) {
+          add_native_ref( currentLength - 1, instr->u.format5.addr,
+                          &native_ref_list );
+          break;
+        }
         symtabInstallReference(instr->u.format5.addr, currentLength - 1, 5);
         break;
       case 7:
@@ -818,7 +903,7 @@ opcodes[] =
 {"std",                   0, 0x1A},
 {"std",                   0, 0x1B},
 {"ldblkid",               5, 0x1C}, /* pseudo instruction */
-{"ldnative",              0, 0x1D},
+{"ldnative",              5, 0x1D}, /* pseudo instruction */
 {"addl",                  0, 0x20},
 {"addl",                  0, 0x21},
 {"subl",                  0, 0x22},
@@ -836,7 +921,7 @@ opcodes[] =
 {"divd",                 10, 0x2E},
 {"negd",                  6, 0x2F},
 {"cvtld",                 6, 0x30},
-{"cvtdl",                 0, 0x31},
+{"cvtdl",                 6, 0x31},
 {"lshift",                0, 0x32},
 {"lshift",                0, 0x33},
 {"rshift",                0, 0x34},

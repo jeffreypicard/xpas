@@ -59,7 +59,7 @@ newline                   [\n]
 
 register                  (([r][0-9])|([r][0-9][0-9])|([r][1][0-9][0-9])|([r][2][0-4][0-9])|(r[2][5][0-5])|(sp)|(fp)|(pc))
 
-id                        ({letter}({letter}|{digit})*)
+id                        ({letter}({letter}|{digit}|_)*)
 
 int_const                 (({digit}+)|(-({digit}+)))
 

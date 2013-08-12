@@ -91,6 +91,13 @@ func
         : FUNC ID handler_list stmt_list END ID 
           {
             $$ = process_func( $2, $6, $3, $4 );
+            if ($$) {
+              $$->native_ref_list = native_ref_list;
+              $$->num_native_refs = native_ref_list_length(native_ref_list);
+            }
+            /* Reset global variable to NULL, which was filled in
+             * as native references were found during instruction parsing. */
+            native_ref_list = NULL;
           }
         ;
 
